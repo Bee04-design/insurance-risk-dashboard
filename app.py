@@ -20,7 +20,9 @@ import matplotlib.pyplot as plt
 import os
 from datetime import datetime
 from sklearn.utils import resample
-import weasyprint
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 
 # Setup Logging with Version Control
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -466,37 +468,20 @@ with col12:
         logger.error(f"Map rendering or analysis failed: {str(e)}")
 
 # Section 6: Downloadable Reports and Data
-st.header("Download Reports and Data")
-col13, col14, col15, col16 = st.columns(4)
-with col13:
-    st.download_button("Download Cleaned Data", data=df.to_csv(index=False), file_name="cleaned_data.csv")
-with col14:
-    predictions_df = X_test.copy()
-    predictions_df['Predicted_Risk'] = y_pred_rf
-    st.download_button("Download Predictions", data=predictions_df.to_csv(index=False), file_name="predictions.csv")
-with col15:
-    if 'shap_df' in st.session_state:
-        st.download_button("Download SHAP Analysis (CSV)", data=st.session_state['shap_df'].to_csv(index=False), file_name="shap_analysis.csv")
-    if os.path.exists('shap_plot.png'):
-        with open('shap_plot.png', 'rb') as f:
-            st.download_button("Download SHAP Plot (PNG)", data=f, file_name="shap_plot.png")
-with col16:
-    try:
-        html_content = f"""
-        <h1>Insurance Risk Dashboard Report</h1>
-        <p><strong>Total Policies:</strong> {total_policies}</p>
-        <p><strong>% High-Risk Policies:</strong> {high_risk_percent:.1f}%</p>
-        <p><strong>Model AUC:</strong> {roc_auc:.2f}</p>
-        <h2>Risk by Location</h2>
-        {risk_by_location.to_html()}
-        """
-        weasyprint.HTML(string=html_content).write_pdf('report.pdf')
-        with open('report.pdf', 'rb') as f:
-            st.download_button("Download Full Report (PDF)", data=f, file_name="report.pdf")
-    except Exception as e:
-        st.warning(f"PDF generation failed: {str(e)}. Ensure WeasyPrint is installed and configured.")
-        logger.error(f"PDF generation failed: {str(e)}")
+def generate_pdf():
+    # Create a new PDF
+    pdf_file = "insurance_risk_report.pdf"
+    c = canvas.Canvas(pdf_file, pagesize=letter)
+    c.drawString(100, 750, "Insurance Risk Report")
+    c.drawString(100, 730, "Generated on: " + str(datetime.now()))
+    c.save()
+    return pdf_file
 
+# Example usage in your app
+if st.button("Download PDF Report"):
+    pdf_file = generate_pdf()
+    with open(pdf_file, "rb") as f:
+        st.download_button("Download PDF", f, file_name="report.pdf")
 # Notes
 st.markdown("**Note**: Ensure the dataset is available. Risk map uses claim risk data to highlight high-risk areas.", unsafe_allow_html=True)
 st.markdown(f"**Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", unsafe_allow_html=True)
