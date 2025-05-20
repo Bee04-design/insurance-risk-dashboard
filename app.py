@@ -2,6 +2,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import KMeans
 import logging
+from sklearn.model_selection import GridSearchCV
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,11 +19,12 @@ from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+from scipy.stats import ks_2samp
 from datetime import datetime
 from sklearn.utils import resample
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-
+from sklearn.metrics import silhouette_score
 
 # Setup Logging with Version Control
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -82,10 +84,38 @@ for col in date_cols:
         df[f'{col}_day'] = df[col].dt.day
         df = df.drop(columns=[col])
 
-# Dynamic Customer Segmentation using K-means
-numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
-X_segment = df[numeric_cols].drop(columns=['claim_risk'], errors='ignore')
-kmeans = KMeans(n_clusters=4, random_state=42)
+from sklearn.metrics import silhouette_score
+
+# Determine optimal number of clusters
+inertia = []
+silhouette = []
+range_n_clusters = range(2, 10)
+for n_clusters in range_n_clusters:
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_labels = kmeans.fit_predict(X_segment)
+    inertia.append(kmeans.inertia_)
+    silhouette.append(silhouette_score(X_segment, cluster_labels))
+
+# Find optimal number of clusters (elbow point)
+optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+logger.info(f"Optimal number of clusters: {optimal_clusters}")
+
+# Apply K-means with optimal clusters
+kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
+df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
+categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
+for col in df.columns:
+    if df[col].dtype == 'object' and col not in date_cols and col not in ['claim_amount_SZL', 'claim_risk']:
+        if col not in categorical_cols:
+            categorical_cols.append(col)
+df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
+
+# Find optimal number of clusters (elbow point)
+optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+logger.info(f"Optimal number of clusters: {optimal_clusters}")
+
+# Apply K-means with optimal clusters
+kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
 df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
 categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
 for col in df.columns:
@@ -106,6 +136,35 @@ train_data_balanced = pd.concat([majority, minority_oversampled])
 X_train_balanced = train_data_balanced.drop(columns=['claim_risk'])
 y_train_balanced = train_data_balanced['claim_risk']
 
+
+
+
+# Define parameter grid
+param_grid = {
+    'n_estimators': [100, 200, 300],
+    'max_depth': [10, 15, 20],
+    'min_samples_leaf': [2, 5, 10],
+    'class_weight': [{0: 1.0, 1: w} for w in [1.5, 2.0, 2.5]]
+}
+
+# Initialize model
+rf = RandomForestClassifier(random_state=42)
+
+# Perform grid search with cross-validation
+grid_search = GridSearchCV(
+    estimator=rf,
+    param_grid=param_grid,
+    cv=5,
+    scoring='roc_auc',
+    n_jobs=-1
+)
+grid_search.fit(X_train_balanced, y_train_balanced)
+
+# Use best model
+rf = grid_search.best_estimator_
+logger.info(f"Best parameters: {grid_search.best_params_}")
+y_pred_rf = rf.predict(X_test)
+
 # Train Random Forest Model
 rf = RandomForestClassifier(
     n_estimators=300,
@@ -117,6 +176,30 @@ rf = RandomForestClassifier(
 rf.fit(X_train_balanced, y_train_balanced)
 y_pred_rf = rf.predict(X_test)
 logger.info("Random Forest model trained and evaluated.")
+
+# Feature selection based on importance
+importances = rf.named_steps['rf'].feature_importances_ if isinstance(rf, Pipeline) else rf.feature_importances_
+feature_names = X_train.columns
+feature_importance_df = pd.DataFrame({'feature': feature_names, 'importance': importances}).sort_values(by='importance', ascending=False)
+top_features = feature_importance_df.head(20)['feature'].tolist()  # Select top 20 features
+logger.info(f"Top features selected: {top_features}")
+
+# Retrain model with selected features
+X_train_selected = X_train[top_features]
+X_test_selected = X_test[top_features]
+rf.fit(X_train_selected, y_train)  # Retrain on selected features
+y_pred_rf = rf.predict(X_test_selected)
+
+
+# Drift detection on a key feature (e.g., claim_amount_SZL)
+drift_feature = 'claim_amount_SZL'
+if drift_feature in df.columns:
+    original_dist = df[drift_feature].values
+    current_dist = pd.DataFrame([input_data]).get(drift_feature, [df[drift_feature].mean()])[0]
+    stat, p_value = ks_2samp(original_dist, np.array([current_dist] * len(original_dist)))
+    if p_value < 0.05:
+        st.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f}). Consider retraining the model.")
+        logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
 
 # Model Metrics
 report = classification_report(y_test, y_pred_rf, output_dict=True)
@@ -262,6 +345,25 @@ with col1:
         except Exception as e:
             st.error(f"Prediction failed: {str(e)}")
             logger.error(f"Prediction failed: {str(e)}")
+
+
+
+with col2:
+    feedback = st.radio("Is this prediction correct?", ("Yes", "No", "Not sure"), key="feedback")
+    if st.button("Submit Feedback"):
+        feedback_log = pd.DataFrame({
+            'timestamp': [pd.Timestamp.now()],
+            'prediction': ['High Risk' if pred == 1 else 'Low Risk'],
+            'probability': [prob],
+            'feedback': [feedback]
+        })
+        feedback_file = os.path.join(save_dir, 'feedback_log.csv')
+        if os.path.exists(feedback_file):
+            feedback_log.to_csv(feedback_file, mode='a', header=False, index=False)
+        else:
+            feedback_log.to_csv(feedback_file, index=False)
+        st.success("Feedback submitted!")
+        logger.info(f"Feedback submitted: {feedback}")
 
 # Section 2: Model Performance and Risk Trends
 col4, col5, col6 = st.columns([1, 1, 1])
@@ -469,14 +571,25 @@ with col12:
 
 # Section 6: Downloadable Reports and Data
 def generate_pdf():
-    # Create a new PDF
     pdf_file = "insurance_risk_report.pdf"
     c = canvas.Canvas(pdf_file, pagesize=letter)
-    c.drawString(100, 750, "Insurance Risk Report")
-    c.drawString(100, 730, "Generated on: " + str(datetime.now()))
+    y_position = 750
+    c.drawString(100, y_position, "Insurance Risk Report")
+    y_position -= 20
+    c.drawString(100, y_position, f"Generated on: {datetime.now()}")
+    y_position -= 20
+    c.drawString(100, y_position, f"Model AUC: {roc_auc:.2f}")
+    y_position -= 20
+    c.drawString(100, y_position, f"Recall for High Risk: {recall_class_1:.2f}")
+    y_position -= 30
+    c.drawString(100, y_position, "Top Features (SHAP):")
+    y_position -= 20
+    if 'shap_df' in st.session_state:
+        for i, row in st.session_state['shap_df'].iterrows():
+            c.drawString(100, y_position, f"{row['Feature']}: {row['SHAP Value']:.4f}")
+            y_position -= 15
     c.save()
     return pdf_file
-
 # Example usage in your app
 if st.button("Download PDF Report"):
     pdf_file = generate_pdf()
