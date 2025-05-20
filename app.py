@@ -157,7 +157,14 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
     risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
     risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
-    risk_by_region_segment['risk_level'] = pd.qcut(risk_by_region_segment['claim_risk'], 3, labels=['Low', 'Medium', 'High'], duplicates='drop')
+    
+    # Ensure sufficient unique values for qcut
+    if risk_by_region_segment['claim_risk'].nunique() > 1:
+        # Calculate quantiles manually to avoid bin edge issues
+        quantiles = risk_by_region_segment['claim_risk'].quantile([0, 0.33, 0.66, 1]).values
+        risk_by_region_segment['risk_level'] = pd.cut(risk_by_region_segment['claim_risk'], bins=quantiles, labels=['Low', 'Medium', 'High'], include_lowest=True)
+    else:
+        risk_by_region_segment['risk_level'] = 'Low'  # Default if not enough variance
 
     # Apply filters
     if selected_risk_levels:
@@ -190,7 +197,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     heat_data = [[row['Latitude'], row['Longitude']] for _, row in df.iterrows() if row['claim_risk'] == 1]
     HeatMap(heat_data, radius=15).add_to(folium_map)
     return folium_map
-
 @st.cache_data
 def load_map(df, selected_risk_levels, selected_regions, selected_segments):
     m = init_map()
