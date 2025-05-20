@@ -9,5 +9,5 @@ folium
 geopandas
 streamlit_folium
 seaborn
+reportlab
 matplotlib
-weasyprint
