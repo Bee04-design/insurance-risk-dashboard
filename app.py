@@ -123,13 +123,7 @@ report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
 fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
 roc_auc = auc(fpr, tpr)
-if recall_class_1 > 0.39:
-    joblib.dump(rf, '/content/rf_model.pkl')
-    logger.info(f"Model saved. Recall for class 1: {recall_class_1}")
-else:
-    logger.info(f"Model not saved. Recall for class 1: {recall_class_1} (below 0.39 threshold)")
 
-# KPI Cards
 st.header("Key Performance Indicators")
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 total_policies = len(df)
