@@ -42,20 +42,27 @@ logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s 
 logger = logging.getLogger(__name__)
 MODEL_VERSION = "v1.0"
 DATASET_VERSION = "2025-05-20"
-MODEL_LAST_TRAINED = "2025-05-20 12:10:00"  # Updated to current time
-
-# Define save_dir globally
-save_dir = './'
-os.makedirs(save_dir, exist_ok=True)
+MODEL_LAST_TRAINED = "2025-05-20 12:10:00"
 
 # Page Setup for Wide Layout
 st.set_page_config(page_title="Insurance Risk Dashboard", page_icon="📊", layout="wide")
 
 # Title and Version Info
-st.title("Insurance Risk Analytics Dashboard")
+st.title("Insurance Risk Streamlit Dashboard")
 st.markdown(f"_Prototype v0.4.6 | Model: {MODEL_VERSION} | Dataset: {DATASET_VERSION} | Last Trained: {MODEL_LAST_TRAINED}_")
 
-# Sidebar for File Upload
+# Sidebar for File Upload and Configuration
+with st.sidebar:
+    st.header("Configuration")
+    uploaded_file = st.file_uploader("Upload Insurance Dataset (CSV)")
+    target_col = st.selectbox("Select Target Column", options=[])
+    numeric_cols = st.multiselect("Select Numeric Features", options=[])
+    cat_cols = st.multiselect("Select Categorical Features", options=[])
+    date_cols = st.multiselect("Select Date Columns", options=[])
+    missing_strategy = st.selectbox("Missing Value Strategy", ["Drop", "Median", "Mode", "Unknown"])
+    st.info("Configure settings after uploading a file.")
+
+# Check for Uploaded File
 if uploaded_file is not None:
     @st.cache_data
     def load_data(path):
