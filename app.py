@@ -83,111 +83,136 @@ except Exception as e:
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel
+from sklearn.metrics import classification_report, roc_curve, auc
+from sklearn.preprocessing import LabelEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import silhouette_score
+from sklearn.cluster import KMeans
+from imblearn.over_sampling import SMOTENC, SMOTE
+
+# --- Upload data ---
+st.title("Insurance Risk Modeling Dashboard")
+uploaded_file = st.file_uploader("Upload your dataset", type=["csv", "xlsx"])
+if uploaded_file:
+    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith("csv") else pd.read_excel(uploaded_file)
+
+    # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
 
-def full_pipeline(df, target_col):
-    # Step 1: Drop rows with missing target
-    df = df[df[target_col].notnull()]
-    
-    # Step 2: Handle infinite values
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
+    # --- Preprocessing with SMOTENC ---
 def preprocess_data(df, target_col):
-    date_cols = [col for col in df.columns if 'date' in col.lower()]
-    for col in date_cols:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
-        df[f'{col}_year'] = df[col].dt.year
-        df[f'{col}_month'] = df[col].dt.month
-        df[f'{col}_day'] = df[col].dt.day
-        df.drop(columns=col, inplace=True)
+        # Drop missing target
+        df = df[df[target_col].notnull()]
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    # Step 2: One-hot encode categorical features
-    categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col != target_col]
-    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+        # Handle date columns
+        date_cols = [col for col in df.columns if 'date' in col.lower()]
+        for col in date_cols:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[f'{col}_year'] = df[col].dt.year
+            df[f'{col}_month'] = df[col].dt.month
+            df[f'{col}_day'] = df[col].dt.day
+            df.drop(columns=col, inplace=True)
 
-    # Step 3: Encode target if categorical
-    if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
-        le = LabelEncoder()
-        df[target_col] = le.fit_transform(df[target_col])
+        # Encode target if needed
+        if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
+            le = LabelEncoder()
+            df[target_col] = le.fit_transform(df[target_col])
 
-    # Step 4: Split features and target
-    X = df.drop(columns=[target_col])
-    y = df[target_col]
+        # Separate features and target
+        X = df.drop(columns=[target_col])
+        y = df[target_col]
 
-    # Step 5: Impute missing values
-    imputer = SimpleImputer(strategy='mean')
-    X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+        # Identify categorical columns before encoding
+        cat_cols = [col for col in X.columns if X[col].dtype == 'object']
+        cat_indices = [X.columns.get_loc(col) for col in cat_cols]
 
-    # Step 6: Handle imbalance by upsampling
-    df_balanced = pd.concat([X, y], axis=1)
-    majority = df_balanced[df_balanced[target_col] == df_balanced[target_col].value_counts().idxmax()]
-    minority = df_balanced[df_balanced[target_col] != df_balanced[target_col].value_counts().idxmax()]
-    minority_upsampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
-    df_balanced = pd.concat([majority, minority_upsampled])
+        # One-hot encode categorical features
+        X = pd.get_dummies(X, drop_first=True)
 
-    # Final balanced X and y
-    X = df_balanced.drop(columns=[target_col])
-    y = df_balanced[target_col]
+        # Impute missing values
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
-    return X, y
+        # Resample using SMOTENC if categorical features exist
+        if len(cat_indices) > 0:
+            smotenc = SMOTENC(categorical_features=cat_indices, random_state=42)
+            try:
+                X_resampled, y_resampled = smotenc.fit_resample(X_imputed, y)
+            except ValueError as e:
+                st.warning(f"SMOTENC could not be applied: {e}")
+                X_resampled, y_resampled = X_imputed, y
+        else:
+            smote = SMOTE(random_state=42)
+            X_resampled, y_resampled = smote.fit_resample(X_imputed, y)
 
+        return X_resampled, y_resampled, df
 
-    # Step 10: Feature selection using Random Forest
+    # --- Model Training ---
 def train_random_forest_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
 
-    selector = RandomForestClassifier(n_estimators=100, random_state=42)
-    selector.fit(X_train, y_train)
-    model = SelectFromModel(selector, prefit=True)
-    X_train_sel = model.transform(X_train)
-    X_test_sel = model.transform(X_test)
-    selected_features = X.columns[model.get_support()]
+        # Feature selection
+        selector = RandomForestClassifier(n_estimators=100, random_state=42)
+        selector.fit(X_train, y_train)
+        model = SelectFromModel(selector, prefit=True)
+        X_train_sel = model.transform(X_train)
+        X_test_sel = model.transform(X_test)
+        selected_features = X.columns[model.get_support()]
 
-    param_grid = {
-                'n_estimators': [50, 100],
-                'max_depth': [None, 5, 10],
-                'min_samples_split': [2, 5]
-             }
-    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-    grid.fit(X_train_sel, y_train)
+        # Grid search
+        param_grid = {
+            'n_estimators': [50, 100],
+            'max_depth': [None, 5, 10],
+            'min_samples_split': [2, 5]
+        }
+        grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+        grid.fit(X_train_sel, y_train)
 
-    best_model = grid.best_estimator_
-    y_pred = best_model.predict(X_test_sel)
-    report = classification_report(y_test, y_pred, output_dict=True)
-    return best_model, selected_features, X_test_sel, y_test, report
-best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
+        best_model = grid.best_estimator_
+        y_pred = best_model.predict(X_test_sel)
+        report = classification_report(y_test, y_pred, output_dict=True)
 
-        # ROC Curve
-fpr, tpr, _ = roc_curve(y_test, best_model.predict_proba(X_test_sel)[:, 1])
-roc_auc = auc(fpr, tpr)
+        return best_model, selected_features, X_test_sel, y_test, report
 
-        # --- Clustering ---
-silhouette = []
-range_n_clusters = range(2, 10)
-X_segment = X.select_dtypes(include=[np.number])
-X_segment = X_segment.replace([np.inf, -np.inf], np.nan).dropna()
+    # --- Run Preprocessing and Modeling ---
+    X, y, df_cleaned = preprocess_data(df.copy(), target_col)
+    best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
 
-for n_clusters in range_n_clusters:
-     kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-     labels = kmeans.fit_predict(X_segment)
-     silhouette.append(silhouette_score(X_segment, labels))
+    # --- ROC Curve ---
+    y_prob = best_model.predict_proba(X_test_sel)[:, 1]
+    fpr, tpr, _ = roc_curve(y_test, y_prob)
+    roc_auc = auc(fpr, tpr)
 
-     optimal_clusters = range_n_clusters[np.argmax(silhouette)]
-     kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
-     df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
+    # --- Clustering ---
+    silhouette = []
+    range_n_clusters = range(2, 10)
+    X_segment = X.select_dtypes(include=[np.number]).replace([np.inf, -np.inf], np.nan).dropna()
+    for n_clusters in range_n_clusters:
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        labels = kmeans.fit_predict(X_segment)
+        silhouette.append(silhouette_score(X_segment, labels))
+    optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+    kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
+    df_cleaned['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
 
-        # --- Display Metrics ---
-st.subheader("Key Metrics")
-cols = st.columns(4)
-metrics = [
-     {"label": "Total Records", "value": len(df)},
-     {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
-     {"label": "Missing Values", "value": df.isnull().sum().sum()},
-     {"label": "Selected Features", "value": len(selected_features)}
+    # --- Metrics Display ---
+    st.subheader("Key Metrics")
+    cols = st.columns(4)
+    metrics = [
+        {"label": "Total Records", "value": len(df)},
+        {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
+        {"label": "Missing Values", "value": df.isnull().sum().sum()},
+        {"label": "Selected Features", "value": len(selected_features)}
     ]
-for col, metric in zip(cols, metrics):
-            with col:
-                st.metric(metric["label"], metric["value"])
+    for col, metric in zip(cols, metrics):
+        col.metric(label=metric["label"], value=metric["value"])
 
         # --- Plot ROC Curve ---
 fig, ax = plt.subplots()
