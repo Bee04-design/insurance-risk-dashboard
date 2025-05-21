@@ -181,6 +181,15 @@ def train_model(X, y):
     )
     grid_search.fit(X_train_sel, y_train_balanced)
 
+    # --- Run Preprocessing and Modeling ---
+if uploaded_file is not None and target_col and (numeric_cols is not None or cat_cols is not None or date_cols is not None):
+    if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
+        st.error("Please complete all configuration settings in the sidebar.")
+        logger.error("Missing configuration settings for preprocessing.")
+        st.stop()
+
+    X, y = preprocess_data(df.copy(), target_col, numeric_cols, cat_cols, date_cols, missing_strategy)
+
     # Predict and evaluate
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test_sel)
