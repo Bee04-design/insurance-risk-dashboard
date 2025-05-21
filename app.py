@@ -115,12 +115,19 @@ def full_pipeline(df, target_col):
     df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
     # --- 5. Encode target if categorical ---
-    if df[target_col].dtype == 'object':
-        le = LabelEncoder()
-        df[target_col] = le.fit_transform(df[target_col])
+   # Drop missing target early
+df = df[df[target_col].notnull()]
 
-    # --- 6. Drop missing targets ---
-    df = df[df[target_col].notnull()]
+# Handle infinite values globally
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+# Encode target if needed
+if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
+    le = LabelEncoder()
+    df[target_col] = le.fit_transform(df[target_col])
+
+# Drop again if any encoding failed and produced NaN
+df = df[df[target_col].notnull()]
 
     # --- 7. Train-test split ---
     X = df.drop(columns=[target_col])
