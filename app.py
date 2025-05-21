@@ -162,6 +162,7 @@ def full_pipeline(df, target_col):
 inertia = []
 silhouette = []
 range_n_clusters = range(2, 10)
+X_segment = df[['age', 'claim_amount_SZL', 'policy_duration',"region"]]  # replace with actual feature names
 
 # Ensure X_segment is clean
 X_segment = X_segment.replace([np.inf, -np.inf], np.nan).dropna()
