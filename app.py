@@ -87,9 +87,7 @@ df.fillna('Unknown', inplace=True)
 
 # Convert date columns to numeric features
 # Preprocessing
-categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col not in ['claim_risk']]
 date_cols = [col for col in df.columns if 'date' in col.lower()]
-logger.info(f"Categorical columns: {categorical_cols}")
 logger.info(f"Date columns: {date_cols}")
 
 # Convert date columns to datetime and extract features
@@ -100,9 +98,12 @@ for col in date_cols:
     df[f'{col}_day'] = df[col].dt.day
     df = df.drop(columns=[col])
 
+# Define categorical columns after dropping date columns
+categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col not in ['claim_risk']]
+logger.info(f"Categorical columns: {categorical_cols}")
+
 # One-hot encode categorical variables before splitting
 df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
-
 # Define features and target
 X = df_encoded.drop(columns=['claim_risk'])
 y = df_encoded['claim_risk'].map({'Low Risk': 0, 'High Risk': 1})
