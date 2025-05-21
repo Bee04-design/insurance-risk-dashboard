@@ -104,12 +104,20 @@ logger.info(f"Categorical columns: {categorical_cols}")
 
 # One-hot encode categorical variables before splitting
 df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
+
+# Handle missing values in claim_risk
+if df_encoded['claim_risk'].isna().any():
+    logger.warning("Found NaN values in 'claim_risk'. Dropping rows with missing values.")
+    df_encoded = df_encoded.dropna(subset=['claim_risk'])
+
 # Define features and target
 X = df_encoded.drop(columns=['claim_risk'])
 y = df_encoded['claim_risk'].map({'Low Risk': 0, 'High Risk': 1})
 
 # Split the data
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+logger.info("Data split into train and test sets.")
 
 # Handle class imbalance using RandomOverSampler within Pipeline (already implemented)
 logger.info("Data split into train and test sets.")
