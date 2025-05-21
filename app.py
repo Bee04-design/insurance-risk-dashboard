@@ -90,54 +90,60 @@ except Exception as e:
 
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
-def preprocess_data(df, target_col):
-    y = df[target_col]
-    X = df.drop(columns=[target_col])
-    
-    # Combine for consistent row drops (e.g., due to NaNs or infs)
-    combined = pd.concat([X, y], axis=1)
-    combined.replace([np.inf, -np.inf], np.nan, inplace=True)
-    combined.dropna(inplace=True)
-    
-    # Separate again
-    y = combined[target_col]
-    X = combined.drop(columns=[target_col])
+def preprocess_data(df, target_col, numeric_cols, cat_cols, date_cols, missing_strategy):
+    df = df.copy()
+    if missing_strategy == "Drop":
+        df = df.dropna()
+    elif missing_strategy == "Median":
+        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+    elif missing_strategy == "Mode":
+        df = df.fillna(df.mode().iloc[0])
+    else:  # Unknown
+        df = df.fillna('Unknown')
 
-    # Define preprocessing
-    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-    categorical_features = X.select_dtypes(include=['object', 'category']).columns
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[f'{col}_year'] = df[col].dt.year
+            df[f'{col}_month'] = df[col].dt.month
+            df[f'{col}_day'] = df[col].dt.day
+            df = df.drop(columns=[col])
 
-    numeric_pipeline = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
+    df_encoded = pd.get_dummies(df, columns=cat_cols, drop_first=False)
+    if target_col not in df_encoded.columns:
+        st.error(f"Target column '{target_col}' not found after encoding.")
+        return None, None
+    y = df_encoded[target_col]
+    if y.dtype not in ['int64', 'float64']:
+        y = LabelEncoder().fit_transform(y)
+    X = df_encoded.drop(columns=[target_col])
+    X = X.astype(float, errors='ignore').fillna(0)
 
-    categorical_pipeline = Pipeline([
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('encoder', OneHotEncoder(handle_unknown='ignore'))
-    ])
+    # Log class distribution
+    class_counts = pd.Series(y).value_counts()
+    logger.info(f"Class distribution in y: {class_counts.to_dict()}")
+    st.write(f"Class Distribution: {class_counts.to_dict()}")  # Display to user
 
-    preprocessor = ColumnTransformer([
-        ('num', numeric_pipeline, numeric_features),
-        ('cat', categorical_pipeline, categorical_features)
-    ])
+    # Check for classes with < 2 samples
+    if (class_counts < 2).any():
+        st.warning("Some classes have fewer than 2 samples. Oversampling minority classes...")
+        logger.info("Oversampling classes with fewer than 2 samples.")
+        from imblearn.over_sampling import RandomOverSampler
+        ros = RandomOverSampler(random_state=42)
+        X, y = ros.fit_resample(X, y)
+        logger.info(f"After oversampling, class distribution: {pd.Series(y).value_counts().to_dict()}")
 
-    X_processed = preprocessor.fit_transform(X)
-    return X_processed, y
-
-def train_random_forest_model(X, y):
-    # Check if stratified split is possible
-    class_counts = y.value_counts()
-    if class_counts.min() >= 2:
-        stratify_option = y
-    else:
-        st.warning("Stratified split disabled: Some classes have < 2 samples.")
-        stratify_option = None
-
-    # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=stratify_option, random_state=42
-    )
+    return X, y
+def train_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)  # Re-add stratify
+    logger.info(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    report = classification_report(y_test, y_pred, output_dict=True)
+    fpr, tpr, _ = roc_curve(y_test, model.predict_proba(X_test)[:, 1])
+    roc_auc = auc(fpr, tpr)
+    return model, X_test, y_test, y_pred, report, roc_auc
 
     # Apply ADASYN oversampling
     adasyn = ADASYN(random_state=42)
