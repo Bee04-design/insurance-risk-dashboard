@@ -53,6 +53,19 @@ if uploaded_file is None:
     st.info("Upload a file through config", icon="ℹ️")
     st.stop()
 
+with st.sidebar:
+    st.header("Configuration")
+    uploaded_file = st.file_uploader("Choose a file (eswatini_insurance_final_dataset.csv)")
+    preview_option = st.selectbox("Preview Dataset", ["No Preview", "Head", "Tail", "Sample (10 rows)"])
+    if preview_option != "No Preview" and uploaded_file is not None:
+        df_preview = load_data(uploaded_file)
+        if preview_option == "Head":
+            st.write(df_preview.head())
+        elif preview_option == "Tail":
+            st.write(df_preview.tail())
+        elif preview_option == "Sample (10 rows)":
+            st.write(df_preview.sample(10))
+
 # Load Data
 @st.cache_data
 def load_data(path):
@@ -207,16 +220,23 @@ recall_class_1 = report['1']['recall']
 fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
 roc_auc = auc(fpr, tpr)
 
-st.header("Key Performance Indicators")
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-total_policies = len(df)
-high_risk_percent = (df['claim_risk'].mean() * 100)
-kpi1.metric("Total Policies", total_policies)
-kpi2.metric("% High-Risk Policies", f"{high_risk_percent:.1f}%")
-kpi3.metric("Model AUC", f"{roc_auc:.2f}")
-kpi4.metric("Missing Values Imputed", missing_values)
+st.header("Key Metrics")
+cols = st.columns(4)
+metrics = [
+    {"label": "Total Policies", "value": len(df)},
+    {"label": "% High-Risk", "value": f"{high_risk_percent:.1f}%"},
+    {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
+    {"label": "Missing Values", "value": missing_values}
+]
+for col, metric in zip(cols, metrics):
+    with col:
+        st.metric(metric["label"], metric["value"])
 
 # Map Functions with Segmentations
+
+
+
+
 def init_map(center=(-26.5, 31.5), zoom_start=7, map_type="cartodbpositron"):
     return folium.Map(location=center, zoom_start=zoom_start, tiles=map_type)
 
@@ -230,10 +250,30 @@ def create_point_map(df):
 
 def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selected_segments):
     region_coords = {
-        'Lubombo': (-26.3, 31.8),
-        'Hhohho': (-26.0, 31.1),
-        'Manzini': (-26.5, 31.4),
-        'Shiselweni': (-27.0, 31.3)
+        'Lubombo': (-26.3, 31.8), 'Hhohho': (-26.0, 31.1),
+        'Manzini': (-26.5, 31.4), 'Shiselweni': (-27.0, 31.3)
+    }
+    risk_by_region = df.groupby('location')['claim_risk'].mean().reset_index()
+    risk_by_region = risk_by_region[risk_by_region['location'].isin(region_coords.keys())]
+    risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
+    risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
+    
+    # Choropleth style
+    folium.Choropleth(
+        geo_data='eswatini_regions.geojson',  # Add a GeoJSON file for Eswatini regions
+        name='choropleth',
+        data=risk_by_region,
+        columns=['location', 'claim_risk'],
+        key_on='feature.properties.name',
+        fill_color='YlOrRd',
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        legend_name='Average Claim Risk'
+    ).add_to(folium_map)
+
+    # Gauge for overall risk
+    folium.plugins.MiniMap().add_to(folium_map)  # Optional mini-map
+    return folium_map
     }
     # Aggregate risk by region and segment
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
@@ -366,38 +406,33 @@ with col2:
         logger.info(f"Feedback submitted: {feedback}")
 
 # Section 2: Model Performance and Risk Trends
-col4, col5, col6 = st.columns([1, 1, 1])
-with col4:
-    st.header("Model Performance")
-    try:
-        y_pred = rf.predict(X_test)
-        cm = confusion_matrix(y_test, y_pred)
-        fig_cm = plt.figure(figsize=(6, 4))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Low Risk', 'High Risk'], yticklabels=['Low Risk', 'High Risk'])
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        plt.title('Confusion Matrix')
-        st.pyplot(fig_cm)
-        logger.info("Confusion matrix rendered")
-    except Exception as e:
-        st.error(f"Performance plotting failed: {str(e)}")
-        logger.error(f"Performance plotting failed: {str(e)}")
-
-with col5:
-    st.header("ROC Curve")
-    try:
-        fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
-        fig_roc = px.line(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'})
-        fig_roc.add_scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'))
-        fig_roc.update_layout(height=300)
-        st.plotly_chart(fig_roc, use_container_width=True)
-        st.text(f"Recall for High Risk: {recall_class_1:.2f}")
-        logger.info("ROC curve rendered")
-    except Exception as e:
-        st.error(f"ROC plotting failed: {str(e)}")
-        logger.error(f"ROC plotting failed: {str(e)}")
-
-with col6:
+with st.expander("Model Performance", expanded=True):
+    col4, col5 = st.columns(2)
+    with col4:
+        st.header("Confusion Matrix")
+        try:
+            y_pred = rf.predict(X_test)
+            cm = confusion_matrix(y_test, y_pred)
+            fig_cm = plt.figure(figsize=(6, 4))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Low Risk', 'High Risk'], yticklabels=['Low Risk', 'High Risk'])
+            plt.xlabel('Predicted')
+            plt.ylabel('Actual')
+            st.pyplot(fig_cm)
+        except Exception as e:
+            st.error(f"Performance plotting failed: {str(e)}")
+    with col5:
+        st.header("ROC Curve")
+        try:
+            fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
+            fig_roc = px.line(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels={'x': 'FPR', 'y': 'TPR'})
+            fig_roc.add_scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'))
+            fig_roc.update_layout(template="plotly_dark", height=300)
+            st.plotly_chart(fig_roc)
+            st.text(f"Recall for High Risk: {recall_class_1:.2f}")
+        except Exception as e:
+            st.error(f"ROC plotting failed: {str(e)}")
+            
+            with col6:
     st.header("Risk Trend Over Time")
     try:
         log_file = os.path.join(save_dir, 'prediction_log.csv')
@@ -449,31 +484,19 @@ with col7:
             logger.error(f"SHAP plot failed: {str(e)}")
 
 with col8:
+   col8, col9 = st.columns(2)
+with col8:
     st.header("Risk by Location")
-    try:
-        risk_by_location = df.groupby('location')['claim_risk'].mean().reset_index()
-        risk_by_location['claim_risk'] *= 100
-        fig_loc = px.bar(risk_by_location, x='location', y='claim_risk', title="Average Risk by Location (%)", color='claim_risk', color_continuous_scale='Blues')
-        fig_loc.update_layout(height=300)
-        st.plotly_chart(fig_loc, use_container_width=True)
-        logger.info("Risk by location plot rendered")
-    except Exception as e:
-        st.error(f"Risk by location plotting failed: {str(e)}")
-        logger.error(f"Risk by location plotting failed: {str(e)}")
-
+    fig_loc = px.bar(risk_by_location, x='location', y='claim_risk', title="Average Risk by Location (%)",
+                     color='claim_risk', color_continuous_scale='Blues', height=300)
+    fig_loc.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_loc)
 with col9:
     st.header("Risk by Claim Type")
-    try:
-        risk_by_claim_type = df.groupby('claim_type')['claim_risk'].mean().reset_index()
-        risk_by_claim_type['claim_risk'] *= 100
-        fig_claim = px.bar(risk_by_claim_type, x='claim_type', y='claim_risk', title="Average Risk by Claim Type (%)", color='claim_risk', color_continuous_scale='Blues')
-        fig_claim.update_layout(height=300)
-        st.plotly_chart(fig_claim, use_container_width=True)
-        logger.info("Risk by claim type plot rendered")
-    except Exception as e:
-        st.error(f"Risk by claim type plotting failed: {str(e)}")
-        logger.error(f"Risk by claim type plotting failed: {str(e)}")
-
+    fig_claim = px.bar(risk_by_claim_type, x='claim_type', y='claim_risk', title="Average Risk by Claim Type (%)",
+                       color='claim_risk', color_continuous_scale='Blues', height=300)
+    fig_claim.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_claim)
 # Section 4: Segmentation Drill-down
 col10, col11 = st.columns([1, 1])
 with col10:
