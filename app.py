@@ -21,6 +21,10 @@ from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+import logging
+
 from scipy.stats import ks_2samp
 from datetime import datetime
 from sklearn.utils import resample
@@ -79,49 +83,95 @@ except Exception as e:
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
 
-# Data Preprocessing with Dynamic Customer Segmentation
-missing_values = df.isna().sum().sum()
-df['claim_risk'] = (df['claim_amount_SZL'] >= df['claim_amount_SZL'].quantile(0.75)).astype(int)
-df.fillna(df.median(numeric_only=True), inplace=True)
-df.fillna('Unknown', inplace=True)
 
-# Convert date columns to numeric features
-# Preprocessing
-date_cols = [col for col in df.columns if 'date' in col.lower()]
-logger.info(f"Date columns: {date_cols}")
 
-# Convert date columns to datetime and extract features
-for col in date_cols:
-    df[col] = pd.to_datetime(df[col], errors='coerce')
-    df[f'{col}_year'] = df[col].dt.year
-    df[f'{col}_month'] = df[col].dt.month
-    df[f'{col}_day'] = df[col].dt.day
-    df = df.drop(columns=[col])
 
-# Define categorical columns after dropping date columns
-categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col not in ['claim_risk']]
-logger.info(f"Categorical columns: {categorical_cols}")
+def full_pipeline(df, target_col):
+    df = df.copy()
 
-# One-hot encode categorical variables before splitting
-df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
+    # --- 1. Date feature engineering ---
+    date_cols = [col for col in df.columns if 'date' in col.lower()]
+    for col in date_cols:
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+        df[f'{col}_year'] = df[col].dt.year
+        df[f'{col}_month'] = df[col].dt.month
+        df[f'{col}_day'] = df[col].dt.day
+        df.drop(columns=[col], inplace=True)
 
-# Handle missing values in claim_risk
-if df_encoded['claim_risk'].isna().any():
-    logger.warning("Found NaN values in 'claim_risk'. Dropping rows with missing values.")
-    df_encoded = df_encoded.dropna(subset=['claim_risk'])
+    # --- 2. Separate features ---
+    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 
-# Define features and target
-X = df_encoded.drop(columns=['claim_risk'])
-y = df_encoded['claim_risk'].map({'Low Risk': 0, 'High Risk': 1})
+    if target_col in categorical_cols:
+        categorical_cols.remove(target_col)
+    if target_col in numerical_cols:
+        numerical_cols.remove(target_col)
 
-# Split the data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    # --- 3. Impute missing values ---
+    df[categorical_cols] = SimpleImputer(strategy='most_frequent').fit_transform(df[categorical_cols])
+    df[numerical_cols] = SimpleImputer(strategy='mean').fit_transform(df[numerical_cols])
 
-logger.info("Data split into train and test sets.")
+    # --- 4. Encode categoricals ---
+    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-# Handle class imbalance using RandomOverSampler within Pipeline (already implemented)
-logger.info("Data split into train and test sets.")
+    # --- 5. Encode target if categorical ---
+    if df[target_col].dtype == 'object':
+        le = LabelEncoder()
+        df[target_col] = le.fit_transform(df[target_col])
 
+    # --- 6. Drop missing targets ---
+    df = df[df[target_col].notnull()]
+
+    # --- 7. Train-test split ---
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
+
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, stratify=y, random_state=42)
+    except ValueError as e:
+        logger.warning(f"Stratified split failed: {e}. Using random split.")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, stratify=None, random_state=42)
+
+    # --- 8. Handle class imbalance using SMOTE ---
+    try:
+        sm = SMOTE(random_state=42)
+        X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
+    except ValueError as e:
+        logger.warning(f"SMOTE failed: {e}. Proceeding without resampling.")
+        X_train_res, y_train_res = X_train, y_train
+
+    # --- 9. Feature Selection using RandomForest importance ---
+    rf_fs = RandomForestClassifier(random_state=42)
+    rf_fs.fit(X_train_res, y_train_res)
+    selector = SelectFromModel(rf_fs, prefit=True, threshold='mean')
+    X_train_sel = selector.transform(X_train_res)
+    X_test_sel = selector.transform(X_test)
+
+    selected_features = X.columns[selector.get_support()]
+
+    # --- 10. Hyperparameter tuning ---
+    rf = RandomForestClassifier(random_state=42)
+    param_grid = {
+        'n_estimators': [100, 200],
+        'max_depth': [None, 10, 20],
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2]
+    }
+    grid = GridSearchCV(rf, param_grid, cv=3, scoring='f1_weighted', n_jobs=-1)
+    grid.fit(X_train_sel, y_train_res)
+
+    best_model = grid.best_estimator_
+    y_pred = best_model.predict(X_test_sel)
+    report = classification_report(y_test, y_pred, output_dict=True)
+
+    return {
+        "selected_features": list(selected_features),
+        "best_params": grid.best_params_,
+        "classification_report": report,
+        "trained_model": best_model
+    }
 # Find optimal number of clusters (elbow point)
 optimal_clusters = range_n_clusters[np.argmax(silhouette)]
 logger.info(f"Optimal number of clusters: {optimal_clusters}")
@@ -149,75 +199,6 @@ for col in df.columns:
         if col not in categorical_cols:
             categorical_cols.append(col)
 df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
-
-# Split features and target with balancing
-X = df_encoded.drop(columns=['claim_amount_SZL', 'claim_risk'])
-y = df_encoded['claim_risk']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-train_data = pd.concat([X_train, y_train], axis=1)
-majority = train_data[train_data.claim_risk == 0]
-minority = train_data[train_data.claim_risk == 1]
-minority_oversampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
-train_data_balanced = pd.concat([majority, minority_oversampled])
-X_train_balanced = train_data_balanced.drop(columns=['claim_risk'])
-y_train_balanced = train_data_balanced['claim_risk']
-
-
-
-
-# Define parameter grid
-param_grid = {
-    'n_estimators': [100, 200, 300],
-    'max_depth': [10, 15, 20],
-    'min_samples_leaf': [2, 5, 10],
-    'class_weight': [{0: 1.0, 1: w} for w in [1.5, 2.0, 2.5]]
-}
-pipeline = Pipeline([
-    ('oversampler', RandomOverSampler(random_state=42)),
-    ('rf', RandomForestClassifier(random_state=42))
-])
-# Initialize model
-rf = RandomForestClassifier(random_state=42)
-
-# Perform grid search with cross-validation
-grid_search = GridSearchCV(
-    estimator=rf,
-    param_grid=param_grid,
-    cv=5,
-    scoring='roc_auc',
-    n_jobs=-1
-)
-grid_search.fit(X_train_balanced, y_train_balanced)
-
-# Use best model
-rf = grid_search.best_estimator_
-logger.info(f"Best parameters: {grid_search.best_params_}")
-y_pred_rf = rf.predict(X_test)
-
-# Train Random Forest Model
-rf = RandomForestClassifier(
-    n_estimators=300,
-    class_weight={0: 1.0, 1: 2.5},
-    max_depth=15,
-    min_samples_leaf=5,
-    random_state=42
-)
-rf.fit(X_train_balanced, y_train_balanced)
-y_pred_rf = rf.predict(X_test)
-logger.info("Random Forest model trained and evaluated.")
-
-# Feature selection based on importance
-importances = rf.named_steps['rf'].feature_importances_ if isinstance(rf, Pipeline) else rf.feature_importances_
-feature_names = X_train.columns
-feature_importance_df = pd.DataFrame({'feature': feature_names, 'importance': importances}).sort_values(by='importance', ascending=False)
-top_features = feature_importance_df.head(20)['feature'].tolist()  # Select top 20 features
-logger.info(f"Top features selected: {top_features}")
-
-# Retrain model with selected features
-X_train_selected = X_train[top_features]
-X_test_selected = X_test[top_features]
-rf.fit(X_train_selected, y_train)  # Retrain on selected features
-y_pred_rf = rf.predict(X_test_selected)
 
 
 # Model Metrics
