@@ -89,7 +89,13 @@ except Exception as e:
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
 
-   def preprocess_data(df, target_col):
+  import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from sklearn.impute import SimpleImputer
+from imblearn.over_sampling import ADASYN
+
+def preprocess_data(df, target_col):
     # Step 1: Drop rows with missing target
     df = df[df[target_col].notnull()].copy()
 
@@ -121,6 +127,16 @@ target_col = st.selectbox("Select the target column", df.columns)
     # Step 7: Impute missing values in features
     imputer = SimpleImputer(strategy='mean')
     X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+
+    # Step 8: Handle imbalance using ADASYN
+    try:
+        adasyn = ADASYN(random_state=42)
+        X_res, y_res = adasyn.fit_resample(X, y)
+    except ValueError as e:
+        print("ADASYN could not be applied due to class imbalance issues:", e)
+        X_res, y_res = X, y  # Fallback to original if error
+
+    return X_res, y_res
 
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
