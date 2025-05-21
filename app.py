@@ -145,30 +145,42 @@ def preprocess_data(df, target_col):
 
     # --- Model Training ---
 def train_random_forest_model(X, y):
-        X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
+    # Check if stratified split is possible
+    class_counts = pd.Series(y).value_counts()
+    can_stratify = class_counts.min() >= 2
 
-        # Feature selection
-        selector = RandomForestClassifier(n_estimators=100, random_state=42)
-        selector.fit(X_train, y_train)
-        model = SelectFromModel(selector, prefit=True)
-        X_train_sel = model.transform(X_train)
-        X_test_sel = model.transform(X_test)
-        selected_features = X.columns[model.get_support()]
+    if can_stratify:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, stratify=y, test_size=0.2, random_state=42
+        )
+    else:
+        st.warning("Stratified split disabled: Some classes have < 2 samples.")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
 
-        # Grid search
-        param_grid = {
-            'n_estimators': [50, 100],
-            'max_depth': [None, 5, 10],
-            'min_samples_split': [2, 5]
-        }
-        grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-        grid.fit(X_train_sel, y_train)
+    # Feature selection
+    selector = RandomForestClassifier(n_estimators=100, random_state=42)
+    selector.fit(X_train, y_train)
+    model = SelectFromModel(selector, prefit=True)
+    X_train_sel = model.transform(X_train)
+    X_test_sel = model.transform(X_test)
+    selected_features = X.columns[model.get_support()]
 
-        best_model = grid.best_estimator_
-        y_pred = best_model.predict(X_test_sel)
-        report = classification_report(y_test, y_pred, output_dict=True)
+    # Grid search
+    param_grid = {
+        'n_estimators': [50, 100],
+        'max_depth': [None, 5, 10],
+        'min_samples_split': [2, 5]
+    }
+    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+    grid.fit(X_train_sel, y_train)
 
-        return best_model, selected_features, X_test_sel, y_test, report
+    best_model = grid.best_estimator_
+    y_pred = best_model.predict(X_test_sel)
+    report = classification_report(y_test, y_pred, output_dict=True)
+
+    return best_model, selected_features, X_test_sel, y_test, report
 
     # --- Run Preprocessing and Modeling ---
 X, y, df_cleaned = preprocess_data(df.copy(), target_col)
