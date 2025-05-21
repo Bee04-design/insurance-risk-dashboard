@@ -274,7 +274,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     # Gauge for overall risk
     folium.plugins.MiniMap().add_to(folium_map)  # Optional mini-map
     return folium_map
-    }
     # Aggregate risk by region and segment
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
