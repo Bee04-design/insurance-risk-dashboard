@@ -155,8 +155,6 @@ def train_random_forest_model(X, y):
     y_pred = best_model.predict(X_test_sel)
     report = classification_report(y_test, y_pred, output_dict=True)
     return best_model, selected_features, X_test_sel, y_test, report
-
-        # Train model
 best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
 
         # ROC Curve
