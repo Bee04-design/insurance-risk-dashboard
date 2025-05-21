@@ -158,33 +158,25 @@ def full_pipeline(df, target_col):
     }
 
 # Find optimal number of clusters (elbow point)
-optimal_clusters = range_n_clusters[np.argmax(silhouette)]
-logger.info(f"Optimal number of clusters: {optimal_clusters}")
 
-# Apply K-means with optimal clusters
+inertia = []
+silhouette = []
+range_n_clusters = range(2, 10)
+
+# Ensure X_segment is clean
+X_segment = X_segment.replace([np.inf, -np.inf], np.nan).dropna()
+
+for n_clusters in range_n_clusters:
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_labels = kmeans.fit_predict(X_segment)
+    inertia.append(kmeans.inertia_)
+    silhouette.append(silhouette_score(X_segment, cluster_labels))
+
+optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+
+# Fit final model
 kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
 df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
-categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
-for col in df.columns:
-    if df[col].dtype == 'object' and col not in date_cols and col not in ['claim_amount_SZL', 'claim_risk']:
-        if col not in categorical_cols:
-            categorical_cols.append(col)
-df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
-
-# Find optimal number of clusters (elbow point)
-optimal_clusters = range_n_clusters[np.argmax(silhouette)]
-logger.info(f"Optimal number of clusters: {optimal_clusters}")
-
-# Apply K-means with optimal clusters
-kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
-df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
-categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
-for col in df.columns:
-    if df[col].dtype == 'object' and col not in date_cols and col not in ['claim_amount_SZL', 'claim_risk']:
-        if col not in categorical_cols:
-            categorical_cols.append(col)
-df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
-
 
 # Model Metrics
 report = classification_report(y_test, y_pred_rf, output_dict=True)
