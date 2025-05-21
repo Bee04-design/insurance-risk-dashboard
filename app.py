@@ -125,10 +125,7 @@ def full_pipeline(df, target_col):
     X = df_balanced.drop(columns=[target_col])
     y = df_balanced[target_col]
 
-    # Step 9: Train/test split
-    def train_random_forest_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
-
+    
     # Step 10: Feature selection using Random Forest
 def train_random_forest_model(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
