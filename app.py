@@ -131,7 +131,7 @@ try:
         smote = SMOTENC(categorical_features=cat_indices, random_state=42)
         X_resampled, y_resampled = smote.fit_resample(X, y)
         X, y = pd.DataFrame(X_resampled, columns=X.columns), pd.Series(y_resampled)
-    except Exception as e:
+except Exception as e:
         st.warning(f"SMOTENC failed: {e}")
         st.warning("Falling back to unbalanced data.")
     # --- Model Training ---
