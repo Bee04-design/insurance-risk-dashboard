@@ -188,7 +188,7 @@ def train_random_forest_model(X, y):
 
     return best_model, selected_features, X_test_sel, y_test, report
     # --- Run Preprocessing and Modeling ---
-X, y, df_cleaned,_ = preprocess_data(df.copy(), target_col)
+X, y, df_cleaned,*rest = preprocess_data(df.copy(), target_col)
 
 
 
