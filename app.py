@@ -122,23 +122,40 @@ def preprocess_data(df, target_col):
         ]
     )
 
-    # Apply preprocessing
+  def preprocess_data(df, target_col):
+    y = df[target_col]
+    X = df.drop(columns=[target_col])
+    
+    # Combine for consistent row drops (e.g., due to NaNs or infs)
+    combined = pd.concat([X, y], axis=1)
+    combined.replace([np.inf, -np.inf], np.nan, inplace=True)
+    combined.dropna(inplace=True)
+    
+    # Separate again
+    y = combined[target_col]
+    X = combined.drop(columns=[target_col])
+
+    # Define preprocessing
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = X.select_dtypes(include=['object', 'category']).columns
+
+    numeric_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+
+    categorical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('encoder', OneHotEncoder(handle_unknown='ignore'))
+    ])
+
+    preprocessor = ColumnTransformer([
+        ('num', numeric_pipeline, numeric_features),
+        ('cat', categorical_pipeline, categorical_features)
+    ])
+
     X_processed = preprocessor.fit_transform(X)
-
-    # Get feature names after one-hot encoding
-    ohe_feature_names = preprocessor.named_transformers_['cat']['onehot'].get_feature_names_out(categorical_features)
-    all_feature_names = numeric_features + ohe_feature_names.tolist()
-    X_processed_df = pd.DataFrame(X_processed, columns=all_feature_names)
-
-    # Train-test split with stratification (if possible)
-    class_counts = y.value_counts()
-    stratify = y if class_counts.min() >= 2 else None
-    X_train, X_test, y_train, y_test = train_test_split(X_processed_df, y, test_size=0.3, random_state=42, stratify=stratify)
-
-    # Apply ADASYN
-    ada = ADASYN(random_state=42)
-    X_train_bal, y_train_bal = ada.fit_resample(X_train, y_train)
-    return X_train_bal, X_test, y_train_bal, y_test, df
+    return X_processed, y
 
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
