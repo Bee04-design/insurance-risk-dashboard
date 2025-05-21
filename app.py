@@ -90,7 +90,8 @@ def full_pipeline(df, target_col):
     # Step 2: Handle infinite values
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    # Step 3: Identify categorical columns
+    def preprocess_data(df, target_col):
+    # Step 1: Convert date columns
     date_cols = [col for col in df.columns if 'date' in col.lower()]
     for col in date_cols:
         df[col] = pd.to_datetime(df[col], errors='coerce')
@@ -99,31 +100,35 @@ def full_pipeline(df, target_col):
         df[f'{col}_day'] = df[col].dt.day
         df.drop(columns=col, inplace=True)
 
-    # Step 4: One-hot encode categorical variables
+    # Step 2: One-hot encode categorical features
     categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col != target_col]
     df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-    # Step 5: Encode target if categorical
+    # Step 3: Encode target if categorical
     if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
         le = LabelEncoder()
         df[target_col] = le.fit_transform(df[target_col])
 
-    # Step 6: Separate X and y
+    # Step 4: Split features and target
     X = df.drop(columns=[target_col])
     y = df[target_col]
 
-    # Step 7: Impute missing values
+    # Step 5: Impute missing values
     imputer = SimpleImputer(strategy='mean')
     X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
-    # Step 8: Handle class imbalance (optional — here: upsampling)
-    X = pd.concat([X, y], axis=1)
-    majority = X[X[target_col] == X[target_col].value_counts().idxmax()]
-    minority = X[X[target_col] != X[target_col].value_counts().idxmax()]
+    # Step 6: Handle imbalance by upsampling
+    df_balanced = pd.concat([X, y], axis=1)
+    majority = df_balanced[df_balanced[target_col] == df_balanced[target_col].value_counts().idxmax()]
+    minority = df_balanced[df_balanced[target_col] != df_balanced[target_col].value_counts().idxmax()]
     minority_upsampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
     df_balanced = pd.concat([majority, minority_upsampled])
+
+    # Final balanced X and y
     X = df_balanced.drop(columns=[target_col])
     y = df_balanced[target_col]
+
+    return X, y
 
 
     # Step 10: Feature selection using Random Forest
