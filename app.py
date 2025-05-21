@@ -186,7 +186,7 @@ if uploaded_file is not None and target_col and (numeric_cols is not None or cat
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test_sel)
     report = classification_report(y_test, y_pred, output_dict=True)
-    return best_model, selected_features, X_test_sel, y_test, report
+   
     # --- Run Preprocessing and Modeling ---
 if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
         st.error("Please complete all configuration settings in the sidebar.")
