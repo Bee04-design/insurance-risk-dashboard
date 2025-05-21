@@ -47,7 +47,7 @@ os.makedirs(save_dir, exist_ok=True)
 st.set_page_config(page_title="Insurance Risk Dashboard", page_icon="📊", layout="wide")
 
 # Title and Version Info
-st.title("Insurance Risk Streamlit Dashboard")
+st.title("Insurance Risk Analytics Dashboard")
 st.markdown(f"_Prototype v0.4.6 | Model: {MODEL_VERSION} | Dataset: {DATASET_VERSION} | Last Trained: {MODEL_LAST_TRAINED}_")
 
 # Sidebar for File Upload
@@ -82,6 +82,8 @@ except Exception as e:
     st.error(f"Dataset loading failed: {str(e)}")
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
+
+target_col = st.selectbox("Select the target column", df.columns)
 
 def full_pipeline(df, target_col):
     # Step 1: Drop rows with missing target
