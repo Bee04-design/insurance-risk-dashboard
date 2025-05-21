@@ -86,26 +86,32 @@ df.fillna(df.median(numeric_only=True), inplace=True)
 df.fillna('Unknown', inplace=True)
 
 # Convert date columns to numeric features
-date_cols = ['policy_start_date', 'claim_date']
-for col in date_cols:
-    if col in df.columns:
-        df[col] = pd.to_datetime(df[col])
-        df[f'{col}_year'] = df[col].dt.year
-        df[f'{col}_month'] = df[col].dt.month
-        df[f'{col}_day'] = df[col].dt.day
-        df = df.drop(columns=[col])
+# Preprocessing
+categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col not in ['claim_risk']]
+date_cols = [col for col in df.columns if 'date' in col.lower()]
+logger.info(f"Categorical columns: {categorical_cols}")
+logger.info(f"Date columns: {date_cols}")
 
-from sklearn.metrics import silhouette_score
-X_segment = df.select_dtypes(include=['float64', 'int64'])
-# Determine optimal number of clusters
-inertia = []
-silhouette = []
-range_n_clusters = range(2, 10)
-for n_clusters in range_n_clusters:
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    cluster_labels = kmeans.fit_predict(X_segment)
-    inertia.append(kmeans.inertia_)
-    silhouette.append(silhouette_score(X_segment, cluster_labels))
+# Convert date columns to datetime and extract features
+for col in date_cols:
+    df[col] = pd.to_datetime(df[col], errors='coerce')
+    df[f'{col}_year'] = df[col].dt.year
+    df[f'{col}_month'] = df[col].dt.month
+    df[f'{col}_day'] = df[col].dt.day
+    df = df.drop(columns=[col])
+
+# One-hot encode categorical variables before splitting
+df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
+
+# Define features and target
+X = df_encoded.drop(columns=['claim_risk'])
+y = df_encoded['claim_risk'].map({'Low Risk': 0, 'High Risk': 1})
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# Handle class imbalance using RandomOverSampler within Pipeline (already implemented)
+logger.info("Data split into train and test sets.")
 
 # Find optimal number of clusters (elbow point)
 optimal_clusters = range_n_clusters[np.argmax(silhouette)]
