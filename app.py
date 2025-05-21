@@ -181,7 +181,7 @@ metrics = [
      {"label": "Missing Values", "value": df.isnull().sum().sum()},
      {"label": "Selected Features", "value": len(selected_features)}
     ]
-        for col, metric in zip(cols, metrics):
+for col, metric in zip(cols, metrics):
             with col:
                 st.metric(metric["label"], metric["value"])
 
