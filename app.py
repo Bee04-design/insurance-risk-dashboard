@@ -431,8 +431,8 @@ with st.expander("Model Performance", expanded=True):
         except Exception as e:
             st.error(f"ROC plotting failed: {str(e)}")
             
-            with col6:
-    st.header("Risk Trend Over Time")
+    with col6:
+       st.header("Risk Trend Over Time")
     try:
         log_file = os.path.join(save_dir, 'prediction_log.csv')
         if os.path.exists(log_file):
