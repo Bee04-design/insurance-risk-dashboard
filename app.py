@@ -90,47 +90,53 @@ except Exception as e:
 target_col = st.selectbox("Select the target column", df.columns)
 
 def preprocess_data(df, target_col):
-    # Step 1: Drop rows with missing target
-    df = df[df[target_col].notnull()].copy()
+    # Drop rows with missing target
+    df = df.dropna(subset=[target_col])
 
-    # Step 2: Handle infinite values
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-    # Step 3: Extract date features
-    date_cols = [col for col in df.columns if 'date' in col.lower()]
-    for col in date_cols:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
-        df[f'{col}_year'] = df[col].dt.year
-        df[f'{col}_month'] = df[col].dt.month
-        df[f'{col}_day'] = df[col].dt.day
-        df.drop(columns=col, inplace=True)
-
-    # Step 4: One-hot encode categorical features (excluding target)
-    categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col != target_col]
-    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
-
-    # Step 5: Encode target if categorical
-    if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
-        le = LabelEncoder()
-        df[target_col] = le.fit_transform(df[target_col])
-
-    # Step 6: Split into features and target
+    # Split features and target
     X = df.drop(columns=[target_col])
     y = df[target_col]
 
-    # Step 7: Impute missing values in features
-    imputer = SimpleImputer(strategy='mean')
-    X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+    # Identify column types
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
-    # Step 8: Handle imbalance using ADASYN
-    try:
-        adasyn = ADASYN(random_state=42)
-        X_res, y_res = adasyn.fit_resample(X, y)
-    except ValueError as e:
-        print("ADASYN could not be applied due to class imbalance issues:", e)
-        X_res, y_res = X, y  # Fallback to original if error
+    # Pipelines
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
 
-    return X_res, y_res
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    ])
+
+    # Combine transformers
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ]
+    )
+
+    # Apply preprocessing
+    X_processed = preprocessor.fit_transform(X)
+
+    # Get feature names after one-hot encoding
+    ohe_feature_names = preprocessor.named_transformers_['cat']['onehot'].get_feature_names_out(categorical_features)
+    all_feature_names = numeric_features + ohe_feature_names.tolist()
+    X_processed_df = pd.DataFrame(X_processed, columns=all_feature_names)
+
+    # Train-test split with stratification (if possible)
+    class_counts = y.value_counts()
+    stratify = y if class_counts.min() >= 2 else None
+    X_train, X_test, y_train, y_test = train_test_split(X_processed_df, y, test_size=0.3, random_state=42, stratify=stratify)
+
+    # Apply ADASYN
+    ada = ADASYN(random_state=42)
+    X_train_bal, y_train_bal = ada.fit_resample(X_train, y_train)
+    return X_train_bal, X_test, y_train_bal, y_test, df
 
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
