@@ -147,30 +147,30 @@ except ValueError as e:
         X_train_res, y_train_res = X_train, y_train
 
     # --- 9. Feature Selection using RandomForest importance ---
-    rf_fs = RandomForestClassifier(random_state=42)
-    rf_fs.fit(X_train_res, y_train_res)
-    selector = SelectFromModel(rf_fs, prefit=True, threshold='mean')
-    X_train_sel = selector.transform(X_train_res)
-    X_test_sel = selector.transform(X_test)
+rf_fs = RandomForestClassifier(random_state=42)
+rf_fs.fit(X_train_res, y_train_res)
+selector = SelectFromModel(rf_fs, prefit=True, threshold='mean')
+X_train_sel = selector.transform(X_train_res)
+X_test_sel = selector.transform(X_test)
 
     selected_features = X.columns[selector.get_support()]
 
     # --- 10. Hyperparameter tuning ---
-    rf = RandomForestClassifier(random_state=42)
-    param_grid = {
+rf = RandomForestClassifier(random_state=42)
+param_grid = {
         'n_estimators': [100, 200],
         'max_depth': [None, 10, 20],
         'min_samples_split': [2, 5],
         'min_samples_leaf': [1, 2]
     }
-    grid = GridSearchCV(rf, param_grid, cv=3, scoring='f1_weighted', n_jobs=-1)
-    grid.fit(X_train_sel, y_train_res)
+grid = GridSearchCV(rf, param_grid, cv=3, scoring='f1_weighted', n_jobs=-1)
+grid.fit(X_train_sel, y_train_res)
 
-    best_model = grid.best_estimator_
-    y_pred = best_model.predict(X_test_sel)
-    report = classification_report(y_test, y_pred, output_dict=True)
+best_model = grid.best_estimator_
+y_pred = best_model.predict(X_test_sel)
+report = classification_report(y_test, y_pred, output_dict=True)
 
-    return {
+return {
         "selected_features": list(selected_features),
         "best_params": grid.best_params_,
         "classification_report": report,
