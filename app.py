@@ -196,8 +196,7 @@ if not all([target_col, numeric_cols is not None, cat_cols is not None, date_col
         st.error("Please complete all configuration settings in the sidebar.")
         logger.error("Missing configuration settings for preprocessing.")
         st.stop()
-
-    X, y = preprocess_data(df.copy(), target_col, numeric_cols, cat_cols, date_cols, missing_strategy)
+X, y = preprocess_data(df.copy(), target_col, numeric_cols, cat_cols, date_cols, missing_strategy)
 
 
 
