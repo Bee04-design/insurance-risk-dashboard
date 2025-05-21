@@ -85,11 +85,6 @@ except Exception as e:
     st.error(f"Dataset loading failed: {str(e)}")
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
-    
-st.title("Insurance Risk Modeling Dashboard")
-uploaded_file = st.file_uploader("Upload your dataset", type=["csv", "xlsx"])
-if uploaded_file:
-    df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith("csv") else pd.read_excel(uploaded_file)
 
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
@@ -130,19 +125,15 @@ def preprocess_data(df, target_col):
         X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
         # Resample using SMOTENC if categorical features exist
-        if len(cat_indices) > 0:
-            smotenc = SMOTENC(categorical_features=cat_indices, random_state=42)
-            try:
-                X_resampled, y_resampled = smotenc.fit_resample(X_imputed, y)
-            except ValueError as e:
-                st.warning(f"SMOTENC could not be applied: {e}")
-                X_resampled, y_resampled = X_imputed, y
-        else:
-            smote = SMOTE(random_state=42)
-            X_resampled, y_resampled = smote.fit_resample(X_imputed, y)
+cat_indices = [i for i, col in enumerate(X.columns) if col in df_encoded.columns and col in categorical_cols]
 
-        return X_resampled, y_resampled, df
-
+    try:
+        smote = SMOTENC(categorical_features=cat_indices, random_state=42)
+        X_resampled, y_resampled = smote.fit_resample(X, y)
+        X, y = pd.DataFrame(X_resampled, columns=X.columns), pd.Series(y_resampled)
+    except Exception as e:
+        st.warning(f"SMOTENC failed: {e}")
+        st.warning("Falling back to unbalanced data.")
     # --- Model Training ---
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
