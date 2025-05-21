@@ -179,8 +179,11 @@ optimal_clusters = range_n_clusters[np.argmax(silhouette)]
 # Fit final model
 kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
 df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
-
+# Assuming you have your trained RandomForest model named `best_model` and test data X_test_sel
+final_model = RandomForestClassifier(random_state=42)
+final_model.fit(X_train_sel, y_train)
 # Model Metrics
+y_pred_rf = best_model.predict(X_test_sel)
 report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
 fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
