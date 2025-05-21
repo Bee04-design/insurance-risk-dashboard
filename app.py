@@ -62,7 +62,20 @@ if uploaded_file is None:
             st.write(df_preview.tail())
         elif preview_option == "Sample (10 rows)":
             st.write(df_preview.sample(10))
+# Load Data
+@st.cache_data
+def load_data(path):
+    logger.info("Loading data...")
+    df = pd.read_csv(path)
+    logger.info("Data loaded successfully")
+    return df
 
+try:
+    df = load_data(uploaded_file)
+except Exception as e:
+    st.error(f"Dataset loading failed: {str(e)}")
+    logger.error(f"Dataset loading failed: {str(e)}")
+    st.stop()
 
 # Data Preprocessing with Dynamic Customer Segmentation
 missing_values = df.isna().sum().sum()
