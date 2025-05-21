@@ -90,39 +90,7 @@ except Exception as e:
 
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
-
 def preprocess_data(df, target_col):
-    # Drop rows with missing target
-    df = df.dropna(subset=[target_col])
-
-    # Split features and target
-    X = df.drop(columns=[target_col])
-    y = df[target_col]
-
-    # Identify column types
-    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
-
-    # Pipelines
-    numeric_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
-
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-    ])
-
-    # Combine transformers
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ]
-    )
-
-  def preprocess_data(df, target_col):
     y = df[target_col]
     X = df.drop(columns=[target_col])
     
