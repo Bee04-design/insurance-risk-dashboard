@@ -47,15 +47,12 @@ st.markdown(f"_Prototype v0.4.6 | Model: {MODEL_VERSION} | Dataset: {DATASET_VER
 # Sidebar for File Upload
 with st.sidebar:
     st.header("Configuration")
-    uploaded_file = st.file_uploader("Choose a file (eswatini_insurance_final_dataset.csv)")
+    uploaded_file = st.file_uploader("Choose a file ")
 
 if uploaded_file is None:
     st.info("Upload a file through config", icon="ℹ️")
     st.stop()
 
-with st.sidebar:
-    st.header("Configuration")
-    uploaded_file = st.file_uploader("Choose a file (eswatini_insurance_final_dataset.csv)")
     preview_option = st.selectbox("Preview Dataset", ["No Preview", "Head", "Tail", "Sample (10 rows)"])
     if preview_option != "No Preview" and uploaded_file is not None:
         df_preview = load_data(uploaded_file)
