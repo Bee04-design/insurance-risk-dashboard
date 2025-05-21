@@ -89,51 +89,38 @@ except Exception as e:
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
 
-    # --- Preprocessing with SMOTENC ---
-def preprocess_data(df, target_col):
-        # Drop missing target
-        df = df[df[target_col].notnull()]
-        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+   def preprocess_data(df, target_col):
+    # Step 1: Drop rows with missing target
+    df = df[df[target_col].notnull()].copy()
 
-        # Handle date columns
-        date_cols = [col for col in df.columns if 'date' in col.lower()]
-        for col in date_cols:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-            df[f'{col}_year'] = df[col].dt.year
-            df[f'{col}_month'] = df[col].dt.month
-            df[f'{col}_day'] = df[col].dt.day
-            df.drop(columns=col, inplace=True)
+    # Step 2: Handle infinite values
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-        # Encode target if needed
-        if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
-            le = LabelEncoder()
-            df[target_col] = le.fit_transform(df[target_col])
+    # Step 3: Extract date features
+    date_cols = [col for col in df.columns if 'date' in col.lower()]
+    for col in date_cols:
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+        df[f'{col}_year'] = df[col].dt.year
+        df[f'{col}_month'] = df[col].dt.month
+        df[f'{col}_day'] = df[col].dt.day
+        df.drop(columns=col, inplace=True)
 
-        # Separate features and target
-        X = df.drop(columns=[target_col])
-        y = df[target_col]
+    # Step 4: One-hot encode categorical features (excluding target)
+    categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col != target_col]
+    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-        # Identify categorical columns before encoding
-        cat_cols = [col for col in X.columns if X[col].dtype == 'object']
-        cat_indices = [X.columns.get_loc(col) for col in cat_cols]
+    # Step 5: Encode target if categorical
+    if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
+        le = LabelEncoder()
+        df[target_col] = le.fit_transform(df[target_col])
 
-        # One-hot encode categorical features
-        X = pd.get_dummies(X, drop_first=True)
+    # Step 6: Split into features and target
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
 
-        # Impute missing values
-        imputer = SimpleImputer(strategy='mean')
-        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
-
-from imblearn.pipeline import Pipeline
-from imblearn.over_sampling import ADASYN
-from imblearn.under_sampling import RandomUnderSampler
-
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.feature_selection import SelectFromModel
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
-from imblearn.over_sampling import ADASYN
-import streamlit as st
+    # Step 7: Impute missing values in features
+    imputer = SimpleImputer(strategy='mean')
+    X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
