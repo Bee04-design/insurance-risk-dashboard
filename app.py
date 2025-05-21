@@ -205,16 +205,6 @@ rf.fit(X_train_selected, y_train)  # Retrain on selected features
 y_pred_rf = rf.predict(X_test_selected)
 
 
-# Drift detection on a key feature (e.g., claim_amount_SZL)
-drift_feature = 'claim_amount_SZL'
-if drift_feature in df.columns:
-    original_dist = df[drift_feature].values
-    current_dist = pd.DataFrame([input_data]).get(drift_feature, [df[drift_feature].mean()])[0]
-    stat, p_value = ks_2samp(original_dist, np.array([current_dist] * len(original_dist)))
-    if p_value < 0.05:
-        st.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f}). Consider retraining the model.")
-        logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
-
 # Model Metrics
 report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
@@ -382,28 +372,21 @@ with col1:
             else:
                 pred_log.to_csv(log_file, index=False)
             logger.info("Prediction saved to prediction_log.csv")
+
+            # Drift Detection (Moved here)
+            from scipy.stats import ks_2samp
+            drift_feature = 'claim_amount_SZL'
+            if drift_feature in df.columns:
+                original_dist = df[drift_feature].values
+                current_dist = pd.DataFrame([input_data]).get(drift_feature, [df[drift_feature].mean()])[0]
+                stat, p_value = ks_2samp(original_dist, np.array([current_dist] * len(original_dist)))
+                if p_value < 0.05:
+                    st.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f}). Consider retraining the model.")
+                    logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
+
         except Exception as e:
             st.error(f"Prediction failed: {str(e)}")
             logger.error(f"Prediction failed: {str(e)}")
-
-
-
-with col2:
-    feedback = st.radio("Is this prediction correct?", ("Yes", "No", "Not sure"), key="feedback")
-    if st.button("Submit Feedback"):
-        feedback_log = pd.DataFrame({
-            'timestamp': [pd.Timestamp.now()],
-            'prediction': ['High Risk' if pred == 1 else 'Low Risk'],
-            'probability': [prob],
-            'feedback': [feedback]
-        })
-        feedback_file = os.path.join(save_dir, 'feedback_log.csv')
-        if os.path.exists(feedback_file):
-            feedback_log.to_csv(feedback_file, mode='a', header=False, index=False)
-        else:
-            feedback_log.to_csv(feedback_file, index=False)
-        st.success("Feedback submitted!")
-        logger.info(f"Feedback submitted: {feedback}")
 
 # Section 2: Model Performance and Risk Trends
 with st.expander("Model Performance", expanded=True):
