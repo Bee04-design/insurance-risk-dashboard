@@ -155,7 +155,10 @@ param_grid = {
     'min_samples_leaf': [2, 5, 10],
     'class_weight': [{0: 1.0, 1: w} for w in [1.5, 2.0, 2.5]]
 }
-
+pipeline = Pipeline([
+    ('oversampler', RandomOverSampler(random_state=42)),
+    ('rf', RandomForestClassifier(random_state=42))
+])
 # Initialize model
 rf = RandomForestClassifier(random_state=42)
 
