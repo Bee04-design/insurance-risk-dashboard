@@ -147,7 +147,6 @@ grid.fit(X_train_sel, y_train)
 best_model = grid.best_estimator_
 y_pred = best_model.predict(X_test_sel)
 report = classification_report(y_test, y_pred, output_dict=True)
-
 return best_model, selected_features, X_test_sel, y_test, report
 
         # Train model
