@@ -83,19 +83,6 @@ except Exception as e:
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
 
-
-
-
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report
-from sklearn.feature_selection import SelectFromModel
-from sklearn.impute import SimpleImputer
-from sklearn.utils import resample
-import pandas as pd
-import numpy as np
-
 def full_pipeline(df, target_col):
     # Step 1: Drop rows with missing target
     df = df[df[target_col].notnull()]
