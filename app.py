@@ -85,7 +85,7 @@ for col in date_cols:
         df = df.drop(columns=[col])
 
 from sklearn.metrics import silhouette_score
-
+X_segment = df.select_dtypes(include=['float64', 'int64'])
 # Determine optimal number of clusters
 inertia = []
 silhouette = []
