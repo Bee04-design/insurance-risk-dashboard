@@ -136,17 +136,17 @@ def full_pipeline(df, target_col):
     X_test_sel = model.transform(X_test)
     selected_features = X.columns[model.get_support()]
 
-   param_grid = {
+param_grid = {
                 'n_estimators': [50, 100],
                 'max_depth': [None, 5, 10],
                 'min_samples_split': [2, 5]
-                }
-  grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-  grid.fit(X_train_sel, y_train)
+             }
+grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+grid.fit(X_train_sel, y_train)
 
- best_model = grid.best_estimator_
- y_pred = best_model.predict(X_test_sel)
- report = classification_report(y_test, y_pred, output_dict=True)
+best_model = grid.best_estimator_
+y_pred = best_model.predict(X_test_sel)
+report = classification_report(y_test, y_pred, output_dict=True)
 
 return best_model, selected_features, X_test_sel, y_test, report
 
