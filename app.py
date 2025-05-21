@@ -128,53 +128,60 @@ from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import ADASYN
 from imblearn.under_sampling import RandomUnderSampler
 
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.feature_selection import SelectFromModel
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+from imblearn.over_sampling import ADASYN
+import streamlit as st
+
 def train_random_forest_model(X, y):
-    # Check stratification feasibility
+    # Check if stratified split is possible
     class_counts = y.value_counts()
     if class_counts.min() >= 2:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, stratify=y, test_size=0.2, random_state=42
-        )
+        stratify_option = y
     else:
         st.warning("Stratified split disabled: Some classes have < 2 samples.")
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
+        stratify_option = None
 
-    # ADASYN + RandomUnderSampler pipeline
-    try:
-        over = ADASYN(sampling_strategy=0.8, random_state=42)
-        under = RandomUnderSampler(sampling_strategy=1.0, random_state=42)
-        pipeline = Pipeline([('over', over), ('under', under)])
-        X_train_balanced, y_train_balanced = pipeline.fit_resample(X_train, y_train)
-        st.info(f"Resampled training class distribution:\n{pd.Series(y_train_balanced).value_counts().to_dict()}")
-    except Exception as e:
-        st.warning(f"Resampling failed: {e}")
-        X_train_balanced, y_train_balanced = X_train, y_train
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=stratify_option, random_state=42
+    )
 
-    # Feature selection
-    selector = RandomForestClassifier(n_estimators=100, random_state=42)
-    selector.fit(X_train_balanced, y_train_balanced)
-    model = SelectFromModel(selector, prefit=True)
-    X_train_sel = model.transform(X_train_balanced)
-    X_test_sel = model.transform(X_test)
-    selected_features = X.columns[model.get_support()]
+    # Apply ADASYN oversampling
+    adasyn = ADASYN(random_state=42)
+    X_train_balanced, y_train_balanced = adasyn.fit_resample(X_train, y_train)
 
-    # Grid search
+    # Feature selection using RandomForest
+    selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    selector_model.fit(X_train_balanced, y_train_balanced)
+    selector = SelectFromModel(selector_model, prefit=True)
+
+    X_train_sel = selector.transform(X_train_balanced)
+    X_test_sel = selector.transform(X_test)
+    selected_features = X.columns[selector.get_support()]
+
+    # Hyperparameter tuning with GridSearch
     param_grid = {
         'n_estimators': [50, 100],
         'max_depth': [None, 5, 10],
         'min_samples_split': [2, 5]
     }
-    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-    grid.fit(X_train_sel, y_train_balanced)
+    grid_search = GridSearchCV(
+        RandomForestClassifier(random_state=42),
+        param_grid,
+        cv=3,
+        scoring='f1_weighted'
+    )
+    grid_search.fit(X_train_sel, y_train_balanced)
 
-    best_model = grid.best_estimator_
+    # Predict and evaluate
+    best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test_sel)
     report = classification_report(y_test, y_pred, output_dict=True)
 
     return best_model, selected_features, X_test_sel, y_test, report
-
     # --- Run Preprocessing and Modeling ---
 X, y, df_cleaned = preprocess_data(df.copy(), target_col)
 best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
