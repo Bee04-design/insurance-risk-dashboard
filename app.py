@@ -152,8 +152,7 @@ rf_fs.fit(X_train_res, y_train_res)
 selector = SelectFromModel(rf_fs, prefit=True, threshold='mean')
 X_train_sel = selector.transform(X_train_res)
 X_test_sel = selector.transform(X_test)
-
-    selected_features = X.columns[selector.get_support()]
+selected_features = X.columns[selector.get_support()]
 
     # --- 10. Hyperparameter tuning ---
 rf = RandomForestClassifier(random_state=42)
