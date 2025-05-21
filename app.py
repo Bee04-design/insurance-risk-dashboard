@@ -56,23 +56,25 @@ st.title("Insurance Risk Analytics Dashboard")
 st.markdown(f"_Prototype v0.4.6 | Model: {MODEL_VERSION} | Dataset: {DATASET_VERSION} | Last Trained: {MODEL_LAST_TRAINED}_")
 
 # Sidebar for File Upload
-with st.sidebar:
-    st.header("Configuration")
-    uploaded_file = st.file_uploader("Choose a file ")
+if uploaded_file is not None:
+    @st.cache_data
+    def load_data(path):
+        logger.info("Loading data...")
+        df = pd.read_csv(path)
+        logger.info("Data loaded successfully")
+        return df
 
-if uploaded_file is None:
-    st.info("Upload a file through config", icon="ℹ️")
-    st.stop()
-
-    preview_option = st.selectbox("Preview Dataset", ["No Preview", "Head", "Tail", "Sample (10 rows)"])
-    if preview_option != "No Preview" and uploaded_file is not None:
-        df_preview = load_data(uploaded_file)
-        if preview_option == "Head":
-            st.write(df_preview.head())
-        elif preview_option == "Tail":
-            st.write(df_preview.tail())
-        elif preview_option == "Sample (10 rows)":
-            st.write(df_preview.sample(10))
+    try:
+        df = load_data(uploaded_file)
+        st.session_state['df'] = df
+        target_col = target_col or st.selectbox("Select Target Column", df.columns, key="target_col")
+        numeric_cols = numeric_cols or st.multiselect("Select Numeric Features", [col for col in df.columns if df[col].dtype in ['int64', 'float64']], key="numeric_cols")
+        cat_cols = cat_cols or st.multiselect("Select Categorical Features", [col for col in df.columns if df[col].dtype == 'object' and col != target_col], key="cat_cols")
+        date_cols = date_cols or st.multiselect("Select Date Columns", [col for col in df.columns if 'date' in col.lower()], key="date_cols")
+    except Exception as e:
+        st.error(f"Dataset loading failed: {str(e)}")
+        logger.error(f"Dataset loading failed: {str(e)}")
+        st.stop()
 # Load Data
 @st.cache_data
 def load_data(path):
