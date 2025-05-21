@@ -2,8 +2,6 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import KMeans
-from imblearn.over_sampling import SMOTENC, SMOTE
-import logging
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import GridSearchCV
 import streamlit as st
@@ -27,7 +25,9 @@ import os
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 import logging
-
+from imblearn.over_sampling import ADASYN
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.pipeline import Pipeline
 from scipy.stats import ks_2samp
 from datetime import datetime
 from sklearn.utils import resample
@@ -124,16 +124,13 @@ def preprocess_data(df, target_col):
         imputer = SimpleImputer(strategy='mean')
         X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
-        # Resample using SMOTENC if categorical features exist
-cat_indices = [i for i, col in enumerate(X.columns) if col in df_encoded.columns and col in categorical_cols]
 
-try:
-        smote = SMOTENC(categorical_features=cat_indices, random_state=42)
-        X_resampled, y_resampled = smote.fit_resample(X, y)
-        X, y = pd.DataFrame(X_resampled, columns=X.columns), pd.Series(y_resampled)
-except Exception as e:
-        st.warning(f"SMOTENC failed: {e}")
-        st.warning("Falling back to unbalanced data.")
+# Define hybrid resampling
+over = ADASYN(sampling_strategy=0.8, random_state=42)  # Slightly favor low-risk
+under = RandomUnderSampler(sampling_strategy=1.0, random_state=42)  # Equalize classes
+pipeline = Pipeline([('over', over), ('under', under)])
+X_train_balanced, y_train_balanced = pipeline.fit_resample(X_train, y_train)
+print(pd.Series(y_train_balanced).value_counts())  # Should be roughly equal
     # --- Model Training ---
 def train_random_forest_model(X, y):
     # Check if stratified split is possible
