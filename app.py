@@ -182,37 +182,37 @@ def train_random_forest_model(X, y):
         return best_model, selected_features, X_test_sel, y_test, report
 
     # --- Run Preprocessing and Modeling ---
-    X, y, df_cleaned = preprocess_data(df.copy(), target_col)
-    best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
+X, y, df_cleaned = preprocess_data(df.copy(), target_col)
+best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
 
     # --- ROC Curve ---
-    y_prob = best_model.predict_proba(X_test_sel)[:, 1]
-    fpr, tpr, _ = roc_curve(y_test, y_prob)
-    roc_auc = auc(fpr, tpr)
+y_prob = best_model.predict_proba(X_test_sel)[:, 1]
+fpr, tpr, _ = roc_curve(y_test, y_prob)
+roc_auc = auc(fpr, tpr)
 
     # --- Clustering ---
-    silhouette = []
-    range_n_clusters = range(2, 10)
-    X_segment = X.select_dtypes(include=[np.number]).replace([np.inf, -np.inf], np.nan).dropna()
-    for n_clusters in range_n_clusters:
+silhouette = []
+range_n_clusters = range(2, 10)
+X_segment = X.select_dtypes(include=[np.number]).replace([np.inf, -np.inf], np.nan).dropna()
+for n_clusters in range_n_clusters:
         kmeans = KMeans(n_clusters=n_clusters, random_state=42)
         labels = kmeans.fit_predict(X_segment)
         silhouette.append(silhouette_score(X_segment, labels))
-    optimal_clusters = range_n_clusters[np.argmax(silhouette)]
-    kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
-    df_cleaned['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
+optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
+df_cleaned['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
 
     # --- Metrics Display ---
-    st.subheader("Key Metrics")
-    cols = st.columns(4)
-    metrics = [
+st.subheader("Key Metrics")
+cols = st.columns(4)
+metrics = [
         {"label": "Total Records", "value": len(df)},
         {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
         {"label": "Missing Values", "value": df.isnull().sum().sum()},
         {"label": "Selected Features", "value": len(selected_features)}
     ]
-    for col, metric in zip(cols, metrics):
-        col.metric(label=metric["label"], value=metric["value"])
+for col, metric in zip(cols, metrics):
+       col.metric(label=metric["label"], value=metric["value"])
 
         # --- Plot ROC Curve ---
 fig, ax = plt.subplots()
