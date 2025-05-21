@@ -128,10 +128,8 @@ if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.Strin
 
 # Drop again if any encoding failed and produced NaN
 df = df[df[target_col].notnull()]
-
-    # --- 7. Train-test split ---
-    X = df.drop(columns=[target_col])
-    y = df[target_col]
+X = df.drop(columns=[target_col])
+y = df[target_col]
 
     try:
         X_train, X_test, y_train, y_test = train_test_split(
