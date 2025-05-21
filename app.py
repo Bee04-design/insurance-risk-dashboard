@@ -192,7 +192,7 @@ if uploaded_file is not None and target_col and (numeric_cols is not None or cat
 
     return best_model, selected_features, X_test_sel, y_test, report
     # --- Run Preprocessing and Modeling ---
- if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
+if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
         st.error("Please complete all configuration settings in the sidebar.")
         logger.error("Missing configuration settings for preprocessing.")
         st.stop()
