@@ -1,4 +1,5 @@
 from sklearn.preprocessing import LabelEncoder
+from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import KMeans
 import logging
