@@ -90,8 +90,7 @@ def full_pipeline(df, target_col):
     # Step 2: Handle infinite values
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    def preprocess_data(df, target_col):
-    # Step 1: Convert date columns
+def preprocess_data(df, target_col):
     date_cols = [col for col in df.columns if 'date' in col.lower()]
     for col in date_cols:
         df[col] = pd.to_datetime(df[col], errors='coerce')
