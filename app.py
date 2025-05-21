@@ -175,11 +175,12 @@ def train_model(X, y):
     }
     grid_search = GridSearchCV(
         RandomForestClassifier(random_state=42),
+        rf = RandomForestClassifier(random_state=42),
         param_grid,
         cv=3,
         scoringrf ='f1_weighted'
     )
-    rf = RandomForestClassifier(random_state=42)
+   
     grid_search = GridSearchCV(rf, param_grid, cv=3, scoring='recall', n_jobs=-1)
     grid_search.fit(X_train_sel, y_train_balanced)
     
