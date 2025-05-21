@@ -86,95 +86,90 @@ except Exception as e:
 
 
 
-def full_pipeline(df, target_col):
-    df = df.copy()
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report
+from sklearn.feature_selection import SelectFromModel
+from sklearn.impute import SimpleImputer
+from sklearn.utils import resample
+import pandas as pd
+import numpy as np
 
-    # --- 1. Date feature engineering ---
+def full_pipeline(df, target_col):
+    # Step 1: Drop rows with missing target
+    df = df[df[target_col].notnull()]
+    
+    # Step 2: Handle infinite values
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+    # Step 3: Identify categorical columns
     date_cols = [col for col in df.columns if 'date' in col.lower()]
     for col in date_cols:
         df[col] = pd.to_datetime(df[col], errors='coerce')
         df[f'{col}_year'] = df[col].dt.year
         df[f'{col}_month'] = df[col].dt.month
         df[f'{col}_day'] = df[col].dt.day
-        df.drop(columns=[col], inplace=True)
+        df.drop(columns=col, inplace=True)
 
-    # --- 2. Separate features ---
-    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-    numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-
-    if target_col in categorical_cols:
-        categorical_cols.remove(target_col)
-    if target_col in numerical_cols:
-        numerical_cols.remove(target_col)
-
-    # --- 3. Impute missing values ---
-    df[categorical_cols] = SimpleImputer(strategy='most_frequent').fit_transform(df[categorical_cols])
-    df[numerical_cols] = SimpleImputer(strategy='mean').fit_transform(df[numerical_cols])
-
-    # --- 4. Encode categoricals ---
+    # Step 4: One-hot encode categorical variables
+    categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and col != target_col]
     df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-    # --- 5. Encode target if categorical ---
-   # Drop missing target early
-df = df[df[target_col].notnull()]
+    # Step 5: Encode target if categorical
+    if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
+        le = LabelEncoder()
+        df[target_col] = le.fit_transform(df[target_col])
 
-# Handle infinite values globally
-df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    # Step 6: Separate X and y
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
 
-# Encode target if needed
-if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.StringDtype):
-    le = LabelEncoder()
-    df[target_col] = le.fit_transform(df[target_col])
+    # Step 7: Impute missing values
+    imputer = SimpleImputer(strategy='mean')
+    X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
-# Drop again if any encoding failed and produced NaN
-df = df[df[target_col].notnull()]
-X = df.drop(columns=[target_col])
-y = df[target_col]
-try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, stratify=y, random_state=42)
-except ValueError as e:
-        logger.warning(f"Stratified split failed: {e}. Using random split.")
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, stratify=None, random_state=42)
+    # Step 8: Handle class imbalance (optional — here: upsampling)
+    X = pd.concat([X, y], axis=1)
+    majority = X[X[target_col] == X[target_col].value_counts().idxmax()]
+    minority = X[X[target_col] != X[target_col].value_counts().idxmax()]
+    minority_upsampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
+    df_balanced = pd.concat([majority, minority_upsampled])
+    X = df_balanced.drop(columns=[target_col])
+    y = df_balanced[target_col]
 
-    # --- 8. Handle class imbalance using SMOTE ---
-try:
-        sm = SMOTE(random_state=42)
-        X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
-except ValueError as e:
-        logger.warning(f"SMOTE failed: {e}. Proceeding without resampling.")
-        X_train_res, y_train_res = X_train, y_train
+    # Step 9: Train/test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
 
-    # --- 9. Feature Selection using RandomForest importance ---
-rf_fs = RandomForestClassifier(random_state=42)
-rf_fs.fit(X_train_res, y_train_res)
-selector = SelectFromModel(rf_fs, prefit=True, threshold='mean')
-X_train_sel = selector.transform(X_train_res)
-X_test_sel = selector.transform(X_test)
-selected_features = X.columns[selector.get_support()]
+    # Step 10: Feature selection using Random Forest
+    selector = RandomForestClassifier(n_estimators=100, random_state=42)
+    selector.fit(X_train, y_train)
+    model = SelectFromModel(selector, prefit=True)
+    X_train_sel = model.transform(X_train)
+    X_test_sel = model.transform(X_test)
+    selected_features = X.columns[model.get_support()]
 
-    # --- 10. Hyperparameter tuning ---
-rf = RandomForestClassifier(random_state=42)
-param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [None, 10, 20],
-        'min_samples_split': [2, 5],
-        'min_samples_leaf': [1, 2]
- }
-grid = GridSearchCV(rf, param_grid, cv=3, scoring='f1_weighted', n_jobs=-1)
-grid.fit(X_train_sel, y_train_res)
+    # Step 11: Hyperparameter tuning
+    param_grid = {
+        'n_estimators': [50, 100],
+        'max_depth': [None, 5, 10],
+        'min_samples_split': [2, 5]
+    }
+    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+    grid.fit(X_train_sel, y_train)
 
-best_model = grid.best_estimator_
-y_pred = best_model.predict(X_test_sel)
-report = classification_report(y_test, y_pred, output_dict=True)
-   
-return {
+    # Step 12: Final model and report
+    best_model = grid.best_estimator_
+    y_pred = best_model.predict(X_test_sel)
+    report = classification_report(y_test, y_pred, output_dict=True)
+
+    return {
         "selected_features": list(selected_features),
         "best_params": grid.best_params_,
         "classification_report": report,
         "trained_model": best_model
-}
+    }
+
 # Find optimal number of clusters (elbow point)
 optimal_clusters = range_n_clusters[np.argmax(silhouette)]
 logger.info(f"Optimal number of clusters: {optimal_clusters}")
