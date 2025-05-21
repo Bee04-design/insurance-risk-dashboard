@@ -127,7 +127,7 @@ def preprocess_data(df, target_col):
         # Resample using SMOTENC if categorical features exist
 cat_indices = [i for i, col in enumerate(X.columns) if col in df_encoded.columns and col in categorical_cols]
 
-    try:
+try:
         smote = SMOTENC(categorical_features=cat_indices, random_state=42)
         X_resampled, y_resampled = smote.fit_resample(X, y)
         X, y = pd.DataFrame(X_resampled, columns=X.columns), pd.Series(y_resampled)
