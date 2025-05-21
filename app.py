@@ -89,12 +89,6 @@ except Exception as e:
     # --- Target Selection ---
 target_col = st.selectbox("Select the target column", df.columns)
 
-  import pandas as pd
-import numpy as np
-from sklearn.preprocessing import LabelEncoder
-from sklearn.impute import SimpleImputer
-from imblearn.over_sampling import ADASYN
-
 def preprocess_data(df, target_col):
     # Step 1: Drop rows with missing target
     df = df[df[target_col].notnull()].copy()
