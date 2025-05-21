@@ -130,20 +130,19 @@ if df[target_col].dtype == 'object' or isinstance(df[target_col].dtype, pd.Strin
 df = df[df[target_col].notnull()]
 X = df.drop(columns=[target_col])
 y = df[target_col]
-
-    try:
+try:
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, stratify=y, random_state=42)
-    except ValueError as e:
+except ValueError as e:
         logger.warning(f"Stratified split failed: {e}. Using random split.")
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, stratify=None, random_state=42)
 
     # --- 8. Handle class imbalance using SMOTE ---
-    try:
+try:
         sm = SMOTE(random_state=42)
         X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
-    except ValueError as e:
+except ValueError as e:
         logger.warning(f"SMOTE failed: {e}. Proceeding without resampling.")
         X_train_res, y_train_res = X_train, y_train
 
