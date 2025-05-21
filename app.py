@@ -224,7 +224,7 @@ st.header("Key Metrics")
 cols = st.columns(4)
 metrics = [
     {"label": "Total Policies", "value": len(df)},
-    {"label": "% High-Risk", "value": f"{high_risk_percent:.1f}%"},
+            {"label": "% High-Risk", "value": f"{high_risk_percent:.1f %}"},
     {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
     {"label": "Missing Values", "value": missing_values}
 ]
