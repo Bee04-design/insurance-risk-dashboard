@@ -136,70 +136,70 @@ def full_pipeline(df, target_col):
     X_test_sel = model.transform(X_test)
     selected_features = X.columns[model.get_support()]
 
-    # Step 11: Hyperparameter tuning
-    param_grid = {
-        'n_estimators': [50, 100],
-        'max_depth': [None, 5, 10],
-        'min_samples_split': [2, 5]
-    }
-    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-    grid.fit(X_train_sel, y_train)
+   param_grid = {
+                'n_estimators': [50, 100],
+                'max_depth': [None, 5, 10],
+                'min_samples_split': [2, 5]
+            }
+  grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+  grid.fit(X_train_sel, y_train)
 
-    # Step 12: Final model and report
-    best_model = grid.best_estimator_
-    y_pred = best_model.predict(X_test_sel)
-    report = classification_report(y_test, y_pred, output_dict=True)
+ best_model = grid.best_estimator_
+ y_pred = best_model.predict(X_test_sel)
+ report = classification_report(y_test, y_pred, output_dict=True)
 
-    return {
-        "selected_features": list(selected_features),
-        "best_params": grid.best_params_,
-        "classification_report": report,
-        "trained_model": best_model
-    }
+return best_model, selected_features, X_test_sel, y_test, report
 
-# Find optimal number of clusters (elbow point)
+        # Train model
+best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
 
-inertia = []
+        # ROC Curve
+fpr, tpr, _ = roc_curve(y_test, best_model.predict_proba(X_test_sel)[:, 1])
+roc_auc = auc(fpr, tpr)
+
+        # --- Clustering ---
 silhouette = []
 range_n_clusters = range(2, 10)
-# Assuming df is already cleaned and encoded
-X_segment = df.select_dtypes(include=[np.number]).drop(columns=['claim_risk'], errors='ignore')
-
-# Ensure X_segment is clean
+X_segment = X.select_dtypes(include=[np.number])
 X_segment = X_segment.replace([np.inf, -np.inf], np.nan).dropna()
 
 for n_clusters in range_n_clusters:
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    cluster_labels = kmeans.fit_predict(X_segment)
-    inertia.append(kmeans.inertia_)
-    silhouette.append(silhouette_score(X_segment, cluster_labels))
+     kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+     labels = kmeans.fit_predict(X_segment)
+     silhouette.append(silhouette_score(X_segment, labels))
 
-optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+     optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+     kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
+     df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
 
-# Fit final model
-kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
-df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
-# Assuming you have your trained RandomForest model named `best_model` and test data X_test_sel
-final_model = RandomForestClassifier(random_state=42)
-final_model.fit(X_train_sel, y_train)
-# Model Metrics
-y_pred_rf = best_model.predict(X_test_sel)
-report = classification_report(y_test, y_pred_rf, output_dict=True)
-recall_class_1 = report['1']['recall']
-fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
-roc_auc = auc(fpr, tpr)
-
-st.header("Key Metrics")
+        # --- Display Metrics ---
+st.subheader("Key Metrics")
 cols = st.columns(4)
 metrics = [
-    {"label": "Total Policies", "value": len(df)},
-            {"label": "% High-Risk", "value": f"{high_risk_percent:.1f %}"},
-    {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
-    {"label": "Missing Values", "value": missing_values}
-]
-for col, metric in zip(cols, metrics):
-    with col:
-        st.metric(metric["label"], metric["value"])
+     {"label": "Total Records", "value": len(df)},
+     {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
+     {"label": "Missing Values", "value": df.isnull().sum().sum()},
+     {"label": "Selected Features", "value": len(selected_features)}
+    ]
+        for col, metric in zip(cols, metrics):
+            with col:
+                st.metric(metric["label"], metric["value"])
+
+        # --- Plot ROC Curve ---
+fig, ax = plt.subplots()
+ax.plot(fpr, tpr, label=f'AUC = {roc_auc:.2f}')
+ax.plot([0, 1], [0, 1], 'k--')
+ax.set_xlabel('False Positive Rate')
+ax.set_ylabel('True Positive Rate')
+ax.set_title('ROC Curve')
+ax.legend()
+st.pyplot(fig)
+
+        # --- Classification Report ---
+st.subheader("Classification Report")
+st.json(report)
+
+st.success("Model trained and results displayed successfully!")
 
 # Map Functions with Segmentations
 
