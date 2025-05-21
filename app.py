@@ -126,9 +126,13 @@ def full_pipeline(df, target_col):
     y = df_balanced[target_col]
 
     # Step 9: Train/test split
+    def train_random_forest_model(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
 
     # Step 10: Feature selection using Random Forest
+def train_random_forest_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
+
     selector = RandomForestClassifier(n_estimators=100, random_state=42)
     selector.fit(X_train, y_train)
     model = SelectFromModel(selector, prefit=True)
@@ -136,18 +140,18 @@ def full_pipeline(df, target_col):
     X_test_sel = model.transform(X_test)
     selected_features = X.columns[model.get_support()]
 
-param_grid = {
+    param_grid = {
                 'n_estimators': [50, 100],
                 'max_depth': [None, 5, 10],
                 'min_samples_split': [2, 5]
              }
-grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
-grid.fit(X_train_sel, y_train)
+    grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
+    grid.fit(X_train_sel, y_train)
 
-best_model = grid.best_estimator_
-y_pred = best_model.predict(X_test_sel)
-report = classification_report(y_test, y_pred, output_dict=True)
-return best_model, selected_features, X_test_sel, y_test, report
+    best_model = grid.best_estimator_
+    y_pred = best_model.predict(X_test_sel)
+    report = classification_report(y_test, y_pred, output_dict=True)
+    return best_model, selected_features, X_test_sel, y_test, report
 
         # Train model
 best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
