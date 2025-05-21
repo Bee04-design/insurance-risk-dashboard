@@ -1,14 +1,17 @@
 from sklearn.preprocessing import LabelEncoder
 from sklearn.pipeline import Pipeline
-from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import KMeans
+from imblearn.over_sampling import SMOTENC, SMOTE
 import logging
+from sklearn.metrics import silhouette_score
 from sklearn.model_selection import GridSearchCV
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+from sklearn.metrics import classification_report, roc_curve, auc
+from sklearn.feature_selection import SelectFromModel
 import shap
 import plotly.express as px
 import folium
@@ -30,7 +33,7 @@ from datetime import datetime
 from sklearn.utils import resample
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from sklearn.metrics import silhouette_score
+
 
 # Setup Logging with Version Control
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -82,21 +85,7 @@ except Exception as e:
     st.error(f"Dataset loading failed: {str(e)}")
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectFromModel
-from sklearn.metrics import classification_report, roc_curve, auc
-from sklearn.preprocessing import LabelEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import silhouette_score
-from sklearn.cluster import KMeans
-from imblearn.over_sampling import SMOTENC, SMOTE
-
-# --- Upload data ---
+    
 st.title("Insurance Risk Modeling Dashboard")
 uploaded_file = st.file_uploader("Upload your dataset", type=["csv", "xlsx"])
 if uploaded_file:
