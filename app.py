@@ -140,7 +140,7 @@ def full_pipeline(df, target_col):
                 'n_estimators': [50, 100],
                 'max_depth': [None, 5, 10],
                 'min_samples_split': [2, 5]
-            }
+                }
   grid = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=3, scoring='f1_weighted')
   grid.fit(X_train_sel, y_train)
 
