@@ -141,57 +141,51 @@ def preprocess_data(df, target_col, numeric_cols, cat_cols, date_cols, missing_s
         ros = RandomOverSampler(random_state=42)
         X, y = ros.fit_resample(X, y)
         logger.info(f"After oversampling, class distribution: {pd.Series(y).value_counts().to_dict()}")
+        return(X,y)
 
-    return X, y
 def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)  # Re-add stratify
+    # Initial data split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     logger.info(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    report = classification_report(y_test, y_pred, output_dict=True)
-    fpr, tpr, _ = roc_curve(y_test, model.predict_proba(X_test)[:, 1])
-    roc_auc = auc(fpr, tpr)
-    return model, X_test, y_test, y_pred, report, roc_auc
 
     # Apply ADASYN oversampling
     adasyn = ADASYN(random_state=42)
     X_train_balanced, y_train_balanced = adasyn.fit_resample(X_train, y_train)
+    logger.info(f"X_train_balanced shape: {X_train_balanced.shape}, y_train_balanced shape: {y_train_balanced.shape}")
 
     # Feature selection using RandomForest
     selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
     selector_model.fit(X_train_balanced, y_train_balanced)
     selector = SelectFromModel(selector_model, prefit=True)
-
     X_train_sel = selector.transform(X_train_balanced)
     X_test_sel = selector.transform(X_test)
     selected_features = X.columns[selector.get_support()]
+    logger.info(f"Selected features: {selected_features.tolist()}")
 
     # Hyperparameter tuning with GridSearch
     param_grid = {
-    'n_estimators': [50, 100],
-    'max_depth': [None, 5, 10],
-    'min_samples_split': [2, 5]
-}
+        'n_estimators': [50, 100],
+        'max_depth': [None, 5, 10],
+        'min_samples_split': [2, 5]
+    }
+    rf = RandomForestClassifier(random_state=42)
+    grid_search = GridSearchCV(
+        estimator=rf,
+        param_grid=param_grid,
+        cv=3,
+        scoring='f1_weighted',  # Using f1_weighted as per your intent
+        n_jobs=-1
+    )
+    grid_search.fit(X_train_sel, y_train_balanced)
 
-rf = RandomForestClassifier(random_state=42)
-
-grid_search = GridSearchCV(
-    estimator=rf,
-    param_grid=param_grid,
-    cv=3,
-    scoring='f1_weighted'
-)
-grid_search = GridSearchCV(rf, param_grid, cv=3, scoring='recall', n_jobs=-1)
-grid_search.fit(X_train_sel, y_train_balanced)
-    
-
-    # --- Run Preprocessing and Modeling ---
-if uploaded_file is not None and target_col and (numeric_cols is not None or cat_cols is not None or date_cols is not None):
+    # Get the best model and predictions
     best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test_sel)
     report = classification_report(y_test, y_pred, output_dict=True)
-   
+    fpr, tpr, _ = roc_curve(y_test, best_model.predict_proba(X_test_sel)[:, 1])
+    roc_auc = auc(fpr, tpr)
+
+    return best_model, selected_features, X_test_sel, y_test, report, roc_auc   
     # --- Run Preprocessing and Modeling ---
 if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
         st.error("Please complete all configuration settings in the sidebar.")
