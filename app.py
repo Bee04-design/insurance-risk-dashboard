@@ -168,7 +168,7 @@ def train_model(X, y):
     selected_features = X.columns[selector.get_support()]
 
     # Hyperparameter tuning with GridSearch
-   param_grid = {
+    param_grid = {
     'n_estimators': [50, 100],
     'max_depth': [None, 5, 10],
     'min_samples_split': [2, 5]
