@@ -114,17 +114,19 @@ for col in df.columns:
 df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
 
 # Split features and target with balancing
+# Split features and target with balancing
 X = df_encoded.drop(columns=['claim_amount_SZL', 'claim_risk'])
 y = df_encoded['claim_risk']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-train_data = pd.concat([X_train, y_train], axis=1)
-majority = train_data[train_data.claim_risk == 0]
-minority = train_data[train_data.claim_risk == 1]
-minority_oversampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
-train_data_balanced = pd.concat([majority, minority_oversampled])
-X_train_balanced = train_data_balanced.drop(columns=['claim_risk'])
-y_train_balanced = train_data_balanced['claim_risk']
 
+# Apply ADASYN oversampling to the entire dataset before splitting
+adasyn = ADASYN(random_state=42)
+X_balanced, y_balanced = adasyn.fit_resample(X, y)
+logger.info(f"X_balanced shape: {X_balanced.shape}, y_balanced shape: {y_balanced.shape}")
+st.write(f"Class Distribution After ADASYN: {pd.Series(y_balanced).value_counts().to_dict()}")
+
+# Split the balanced data
+X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, stratify=y_balanced, random_state=42)
+# Train Random Forest Model with Feature Selection
 # Train Random Forest Model with Feature Selection
 rf = RandomForestClassifier(
     n_estimators=300,
@@ -135,13 +137,13 @@ rf = RandomForestClassifier(
 )
 # Feature selection using RandomForest
 selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
-selector_model.fit(X_train_balanced, y_train_balanced)
+selector_model.fit(X_train, y_train)
 selector = SelectFromModel(selector_model, prefit=True)
-X_train_selected = selector.transform(X_train_balanced)
+X_train_selected = selector.transform(X_train)
 X_test_selected = selector.transform(X_test)
 selected_features = X.columns[selector.get_support()]
 logger.info(f"Selected features: {selected_features.tolist()}")
-rf.fit(X_train_selected, y_train_balanced)
+rf.fit(X_train_selected, y_train)
 y_pred_rf = rf.predict(X_test_selected)
 report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
@@ -151,7 +153,6 @@ if recall_class_1 > 0.39:
     logger.info(f"Model saved. Recall for class 1: {recall_class_1}")
 else:
     logger.info(f"Model not saved. Recall for class 1: {recall_class_1} (below 0.39 threshold)")
-
 # Metrics Display
 st.subheader("Key Metrics")
 cols = st.columns(4)
