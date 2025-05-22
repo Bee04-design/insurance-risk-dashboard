@@ -143,21 +143,22 @@ def preprocess_data(df, target_col, numeric_cols, cat_cols, date_cols, missing_s
         logger.info(f"After oversampling, class distribution: {pd.Series(y).value_counts().to_dict()}")
         return(X,y)
 
-def train_random_forest_model(X, y):
-    # Initial data split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    logger.info(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
-
-    # Apply ADASYN oversampling
+def train_model(X, y):
+    # Apply ADASYN oversampling to the entire dataset before splitting
     adasyn = ADASYN(random_state=42)
-    X_train_balanced, y_train_balanced = adasyn.fit_resample(X_train, y_train)
-    logger.info(f"X_train_balanced shape: {X_train_balanced.shape}, y_train_balanced shape: {y_train_balanced.shape}")
+    X_balanced, y_balanced = adasyn.fit_resample(X, y)
+    logger.info(f"X_balanced shape: {X_balanced.shape}, y_balanced shape: {y_balanced.shape}")
+    st.write(f"Class Distribution After ADASYN: {pd.Series(y_balanced).value_counts().to_dict()}")
+
+    # Split the balanced data
+    X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, random_state=42, stratify=y_balanced)
+    logger.info(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
 
     # Feature selection using RandomForest
     selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
-    selector_model.fit(X_train_balanced, y_train_balanced)
+    selector_model.fit(X_train, y_train)
     selector = SelectFromModel(selector_model, prefit=True)
-    X_train_sel = selector.transform(X_train_balanced)
+    X_train_sel = selector.transform(X_train)
     X_test_sel = selector.transform(X_test)
     selected_features = X.columns[selector.get_support()]
     logger.info(f"Selected features: {selected_features.tolist()}")
@@ -173,10 +174,10 @@ def train_random_forest_model(X, y):
         estimator=rf,
         param_grid=param_grid,
         cv=3,
-        scoring='f1_weighted',  # Using f1_weighted as per your intent
+        scoring='f1_weighted',
         n_jobs=-1
     )
-    grid_search.fit(X_train_sel, y_train_balanced)
+    grid_search.fit(X_train_sel, y_train)
 
     # Get the best model and predictions
     best_model = grid_search.best_estimator_
@@ -185,7 +186,7 @@ def train_random_forest_model(X, y):
     fpr, tpr, _ = roc_curve(y_test, best_model.predict_proba(X_test_sel)[:, 1])
     roc_auc = auc(fpr, tpr)
 
-    return best_model, selected_features, X_test_sel, y_test, report, roc_auc   
+    return best_model, selected_features, X_test_sel, y_test, report, roc_auc  
     # --- Run Preprocessing and Modeling ---
 if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
         st.error("Please complete all configuration settings in the sidebar.")
@@ -195,7 +196,7 @@ X, y = preprocess_data(df.copy(), target_col, numeric_cols, cat_cols, date_cols,
 
 
 
-best_model, selected_features, X_test_sel, y_test, report = train_random_forest_model(X, y)
+best_model, selected_features, X_test_sel, y_test, report = train_model(X, y)
 
     # --- ROC Curve ---
 y_prob = best_model.predict_proba(X_test_sel)[:, 1]
