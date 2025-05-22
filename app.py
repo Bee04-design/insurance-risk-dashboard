@@ -293,8 +293,8 @@ with col1:
         input_data[f'{col}_year'] = st.slider(f"{col} Year", 2000, 2025, 2020)
         input_data[f'{col}_month'] = st.slider(f"{col} Month", 1, 12, 6)
         input_data[f'{col}_day'] = st.slider(f"{col} Day", 1, 31, 15)
-
-   if st.button("Predict"):
+        
+if st.button("Predict"):
     logger.info("Predict button clicked")
     try:
         input_df = pd.DataFrame([input_data])
