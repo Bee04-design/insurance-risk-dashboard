@@ -294,49 +294,59 @@ with col1:
         input_data[f'{col}_month'] = st.slider(f"{col} Month", 1, 12, 6)
         input_data[f'{col}_day'] = st.slider(f"{col} Day", 1, 31, 15)
 
-    if st.button("Predict"):
-        logger.info("Predict button clicked")
-        try:
-            input_df = pd.DataFrame([input_data])
-            expected_features = selected_features
-            input_df_encoded = pd.get_dummies(input_df, columns=categorical_cols, drop_first=False)
-            for col in expected_features:
-                if col not in input_df_encoded.columns:
-                    input_df_encoded[col] = 0
-            input_df_encoded = input_df_encoded[expected_features]
-            pred = rf.predict(input_df_encoded)[0]
-            prob = rf.predict_proba(input_df_encoded)[0][1]
-            with col2:
-                st.markdown(f"**Prediction**: {'High Risk' if pred == 1 else 'Low Risk'}")
-            with col3:
-                st.metric("Probability (High Risk)", f"{prob*100:.1f}%")
-                st.progress(prob)
-            logger.info(f"Prediction: {pred}, Probability: {prob}")
-            pred_log = pd.DataFrame({
-                'timestamp': [pd.Timestamp.now()],
-                'prediction': ['High Risk' if pred == 1 else 'Low Risk'],
-                'probability_high_risk': [prob]
-            })
-            log_file = os.path.join(save_dir, 'prediction_log.csv')
-            if os.path.exists(log_file):
-                pred_log.to_csv(log_file, mode='a', header=False, index=False)
+   if st.button("Predict"):
+    logger.info("Predict button clicked")
+    try:
+        input_df = pd.DataFrame([input_data])
+        expected_features = selected_features
+        input_df_encoded = pd.get_dummies(input_df, columns=categorical_cols, drop_first=False)
+        for col in expected_features:
+            if col not in input_df_encoded.columns:
+                input_df_encoded[col] = 0
+        input_df_encoded = input_df_encoded[expected_features]
+        pred = rf.predict(input_df_encoded)[0]
+        prob = rf.predict_proba(input_df_encoded)[0][1]
+        with col2:
+            st.markdown(f"**Prediction**: {'High Risk' if pred == 1 else 'Low Risk'}")
+        with col3:
+            st.metric("Probability (High Risk)", f"{prob*100:.1f}%")
+            st.progress(prob)
+        logger.info(f"Prediction: {pred}, Probability: {prob}")
+        pred_log = pd.DataFrame({
+            'timestamp': [pd.Timestamp.now()],
+            'prediction': ['High Risk' if pred == 1 else 'Low Risk'],
+            'probability_high_risk': [prob]
+        })
+        log_file = os.path.join(save_dir, 'prediction_log.csv')
+        if os.path.exists(log_file):
+            pred_log.to_csv(log_file, mode='a', header=False, index=False)
+        else:
+            pred_log.to_csv(log_file, index=False)
+        logger.info("Prediction saved to prediction_log.csv")
+
+        # Drift Detection
+        drift_feature = 'probability_high_risk'
+        if os.path.exists(log_file):
+            pred_log_df = pd.read_csv(log_file)
+            pred_log_df['timestamp'] = pd.to_datetime(pred_log_df['timestamp'])
+            recent_preds = pred_log_df[pred_log_df['timestamp'] > (pd.Timestamp.now() - pd.Timedelta(days=7))]  # Last 7 days
+            if len(recent_preds) > 10:  # Ensure enough samples
+                original_dist = pred_log_df[drift_feature].dropna().values
+                recent_dist = recent_preds[drift_feature].dropna().values
+                stat, p_value = ks_2samp(original_dist, recent_dist)
+                if p_value < 0.05:
+                    st.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f}). Consider retraining the model.")
+                    logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
+                else:
+                    logger.info(f"No significant drift detected (p-value: {p_value:.4f})")
             else:
-                pred_log.to_csv(log_file, index=False)
-            logger.info("Prediction saved to prediction_log.csv")
+                st.info("Not enough recent predictions for drift detection.")
+        else:
+            st.info("No prediction history available for drift detection.")
 
-            # Drift Detection (Simplified - placeholder for proper implementation)
-            drift_feature = 'claim_amount_SZL'
-            if drift_feature in df.columns:
-                original_dist = df[drift_feature].values
-                current_dist = pd.DataFrame([input_data]).get(drift_feature, [df[drift_feature].mean()])[0]
-                # Note: This is a placeholder; proper drift detection requires a better approach
-                st.info("Drift detection is currently a placeholder. A proper implementation is needed.")
-                logger.info("Drift detection placeholder executed.")
-
-        except Exception as e:
-            st.error(f"Prediction failed: {str(e)}")
-            logger.error(f"Prediction failed: {str(e)}")
-
+    except Exception as e:
+        st.error(f"Prediction failed: {str(e)}")
+        logger.error(f"Prediction failed: {str(e)}")
 # Section 2: Model Performance and Risk Trends
 with st.expander("Model Performance", expanded=True):
     col4, col5 = st.columns(2)
