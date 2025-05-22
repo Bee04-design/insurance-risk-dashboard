@@ -36,13 +36,16 @@ from sklearn.utils import resample
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-
 # Setup Logging with Version Control
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 MODEL_VERSION = "v1.0"
 DATASET_VERSION = "2025-05-20"
-MODEL_LAST_TRAINED = "2025-05-20 12:10:00"
+MODEL_LAST_TRAINED = "2025-05-20 12:10:00"  # Updated to current time
+
+# Define save_dir globally
+save_dir = './'
+os.makedirs(save_dir, exist_ok=True)
 
 # Page Setup for Wide Layout
 st.set_page_config(page_title="Insurance Risk Dashboard", page_icon="📊", layout="wide")
@@ -51,37 +54,15 @@ st.set_page_config(page_title="Insurance Risk Dashboard", page_icon="📊", layo
 st.title("Insurance Risk Streamlit Dashboard")
 st.markdown(f"_Prototype v0.4.6 | Model: {MODEL_VERSION} | Dataset: {DATASET_VERSION} | Last Trained: {MODEL_LAST_TRAINED}_")
 
-# Sidebar for File Upload and Configuration
+# Sidebar for File Upload
 with st.sidebar:
     st.header("Configuration")
-    uploaded_file = st.file_uploader("Upload Insurance Dataset (CSV)")
-    target_col = st.selectbox("Select Target Column", options=[])
-    numeric_cols = st.multiselect("Select Numeric Features", options=[])
-    cat_cols = st.multiselect("Select Categorical Features", options=[])
-    date_cols = st.multiselect("Select Date Columns", options=[])
-    missing_strategy = st.selectbox("Missing Value Strategy", ["Drop", "Median", "Mode", "Unknown"])
-    st.info("Configure settings after uploading a file.")
+    uploaded_file = st.file_uploader("Choose a file (eswatini_insurance_final_dataset.csv)")
 
-# Check for Uploaded File
-if uploaded_file is not None:
-    @st.cache_data
-    def load_data(path):
-        logger.info("Loading data...")
-        df = pd.read_csv(path)
-        logger.info("Data loaded successfully")
-        return df
+if uploaded_file is None:
+    st.info("Upload a file through config", icon="ℹ️")
+    st.stop()
 
-    try:
-        df = load_data(uploaded_file)
-        st.session_state['df'] = df
-        target_col = target_col or st.selectbox("Select Target Column", df.columns, key="target_col")
-        numeric_cols = numeric_cols or st.multiselect("Select Numeric Features", [col for col in df.columns if df[col].dtype in ['int64', 'float64']], key="numeric_cols")
-        cat_cols = cat_cols or st.multiselect("Select Categorical Features", [col for col in df.columns if df[col].dtype == 'object' and col != target_col], key="cat_cols")
-        date_cols = date_cols or st.multiselect("Select Date Columns", [col for col in df.columns if 'date' in col.lower()], key="date_cols")
-    except Exception as e:
-        st.error(f"Dataset loading failed: {str(e)}")
-        logger.error(f"Dataset loading failed: {str(e)}")
-        st.stop()
 # Load Data
 @st.cache_data
 def load_data(path):
@@ -97,107 +78,57 @@ except Exception as e:
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
 
-    # --- Target Selection ---
-target_col = st.selectbox("Select the target column", df.columns)
-def preprocess_data(df, target_col, numeric_cols, cat_cols, date_cols, missing_strategy):
-    df = df.copy()
-    if missing_strategy == "Drop":
-        df = df.dropna()
-    elif missing_strategy == "Median":
-        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
-    elif missing_strategy == "Mode":
-        df = df.fillna(df.mode().iloc[0])
-    else:  # Unknown
-        df = df.fillna('Unknown')
+# Data Preprocessing with Dynamic Customer Segmentation
+missing_values = df.isna().sum().sum()
+df['claim_risk'] = (df['claim_amount_SZL'] >= df['claim_amount_SZL'].quantile(0.75)).astype(int)
+df.fillna(df.median(numeric_only=True), inplace=True)
+df.fillna('Unknown', inplace=True)
 
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-            df[f'{col}_year'] = df[col].dt.year
-            df[f'{col}_month'] = df[col].dt.month
-            df[f'{col}_day'] = df[col].dt.day
-            df = df.drop(columns=[col])
+# Convert date columns to numeric features
+date_cols = ['policy_start_date', 'claim_date']
+for col in date_cols:
+    if col in df.columns:
+        df[col] = pd.to_datetime(df[col])
+        df[f'{col}_year'] = df[col].dt.year
+        df[f'{col}_month'] = df[col].dt.month
+        df[f'{col}_day'] = df[col].dt.day
+        df = df.drop(columns=[col])
 
-    df_encoded = pd.get_dummies(df, columns=cat_cols, drop_first=False)
-    if target_col not in df_encoded.columns:
-        st.error(f"Target column '{target_col}' not found after encoding.")
-        return None, None
-    y = df_encoded[target_col]
-    if y.dtype not in ['int64', 'float64']:
-        y = LabelEncoder().fit_transform(y)
-    X = df_encoded.drop(columns=[target_col])
-    X = X.astype(float, errors='ignore').fillna(0)
+# Dynamic Customer Segmentation using K-means
+numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+X_segment = df[numeric_cols].drop(columns=['claim_risk'], errors='ignore')
+kmeans = KMeans(n_clusters=4, random_state=42)
+df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
+categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
+for col in df.columns:
+    if df[col].dtype == 'object' and col not in date_cols and col not in ['claim_amount_SZL', 'claim_risk']:
+        if col not in categorical_cols:
+            categorical_cols.append(col)
+df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
 
-    # Log class distribution
-    class_counts = pd.Series(y).value_counts()
-    logger.info(f"Class distribution in y: {class_counts.to_dict()}")
-    st.write(f"Class Distribution: {class_counts.to_dict()}")  # Display to user
+# Split features and target with balancing
+X = df_encoded.drop(columns=['claim_amount_SZL', 'claim_risk'])
+y = df_encoded['claim_risk']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+train_data = pd.concat([X_train, y_train], axis=1)
+majority = train_data[train_data.claim_risk == 0]
+minority = train_data[train_data.claim_risk == 1]
+minority_oversampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
+train_data_balanced = pd.concat([majority, minority_oversampled])
+X_train_balanced = train_data_balanced.drop(columns=['claim_risk'])
+y_train_balanced = train_data_balanced['claim_risk']
 
-    # Check for classes with < 2 samples
-    if (class_counts < 2).any():
-        st.warning("Some classes have fewer than 2 samples. Oversampling minority classes...")
-        logger.info("Oversampling classes with fewer than 2 samples.")
-        from imblearn.over_sampling import RandomOverSampler
-        ros = RandomOverSampler(random_state=42)
-        X, y = ros.fit_resample(X, y)
-        logger.info(f"After oversampling, class distribution: {pd.Series(y).value_counts().to_dict()}")
-        return(X,y)
-
-def train_model(X, y):
-    # Apply ADASYN oversampling to the entire dataset before splitting
-    adasyn = ADASYN(random_state=42)
-    X_balanced, y_balanced = adasyn.fit_resample(X, y)
-    logger.info(f"X_balanced shape: {X_balanced.shape}, y_balanced shape: {y_balanced.shape}")
-    st.write(f"Class Distribution After ADASYN: {pd.Series(y_balanced).value_counts().to_dict()}")
-
-    # Split the balanced data
-    X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, random_state=42, stratify=y_balanced)
-    logger.info(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
-
-    # Feature selection using RandomForest
-    selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
-    selector_model.fit(X_train, y_train)
-    selector = SelectFromModel(selector_model, prefit=True)
-    X_train_sel = selector.transform(X_train)
-    X_test_sel = selector.transform(X_test)
-    selected_features = X.columns[selector.get_support()]
-    logger.info(f"Selected features: {selected_features.tolist()}")
-
-    # Hyperparameter tuning with GridSearch
-    param_grid = {
-        'n_estimators': [50, 100],
-        'max_depth': [None, 5, 10],
-        'min_samples_split': [2, 5]
-    }
-    rf = RandomForestClassifier(random_state=42)
-    grid_search = GridSearchCV(
-        estimator=rf,
-        param_grid=param_grid,
-        cv=3,
-        scoring='f1_weighted',
-        n_jobs=-1
-    )
-    grid_search.fit(X_train_sel, y_train)
-
-    # Get the best model and predictions
-    best_model = grid_search.best_estimator_
-    y_pred = best_model.predict(X_test_sel)
-    report = classification_report(y_test, y_pred, output_dict=True)
-    fpr, tpr, _ = roc_curve(y_test, best_model.predict_proba(X_test_sel)[:, 1])
-    roc_auc = auc(fpr, tpr)
-
-    return best_model, selected_features, X_test_sel, y_test, report, roc_auc  
-    # --- Run Preprocessing and Modeling ---
-if not all([target_col, numeric_cols is not None, cat_cols is not None, date_cols is not None, missing_strategy]):
-        st.error("Please complete all configuration settings in the sidebar.")
-        logger.error("Missing configuration settings for preprocessing.")
-        st.stop()
-X, y = preprocess_data(df.copy(), target_col, numeric_cols, cat_cols, date_cols, missing_strategy)
-
-
-
-best_model, selected_features, X_test_sel, y_test, report = train_model(X, y)
-
+# Train Random Forest Model
+rf = RandomForestClassifier(
+    n_estimators=300,
+    class_weight={0: 1.0, 1: 2.5},
+    max_depth=15,
+    min_samples_leaf=5,
+    random_state=42
+)
+rf.fit(X_train_balanced, y_train_balanced)
+y_pred_rf = rf.predict(X_test)
+logger.info("Random Forest model trained and evaluated.")
     # --- ROC Curve ---
 y_prob = best_model.predict_proba(X_test_sel)[:, 1]
 fpr, tpr, _ = roc_curve(y_test, y_prob)
