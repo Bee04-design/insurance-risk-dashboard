@@ -130,9 +130,15 @@ rf.fit(X_train_balanced, y_train_balanced)
 y_pred_rf = rf.predict(X_test)
 logger.info("Random Forest model trained and evaluated.")
     # --- ROC Curve ---
-y_prob = best_model.predict_proba(X_test_sel)[:, 1]
-fpr, tpr, _ = roc_curve(y_test, y_prob)
+# Model Metrics
+report = classification_report(y_test, y_pred_rf, output_dict=True)
+recall_class_1 = report['1']['recall']
+fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
 roc_auc = auc(fpr, tpr)
+if recall_class_1 > 0.39:
+    logger.info(f"Model saved. Recall for class 1: {recall_class_1}")
+else:
+    logger.info(f"Model not saved. Recall for class 1: {recall_class_1} (below 0.39 threshold)")
 
     # --- Clustering ---
 silhouette = []
