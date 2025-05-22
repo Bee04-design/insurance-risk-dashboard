@@ -19,20 +19,18 @@ from folium.plugins import HeatMap
 import geopandas
 from shapely.geometry import Point
 from streamlit_folium import st_folium
-from sklearn.metrics import confusion_matrix, roc_curve, auc, classification_report
+from sklearn.metrics import confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
 import logging
 from imblearn.over_sampling import ADASYN
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.pipeline import Pipeline
 from scipy.stats import ks_2samp
 from datetime import datetime
-from sklearn.utils import resample
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -41,7 +39,7 @@ logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s 
 logger = logging.getLogger(__name__)
 MODEL_VERSION = "v1.0"
 DATASET_VERSION = "2025-05-20"
-MODEL_LAST_TRAINED = "2025-05-20 12:10:00"  # Updated to current time
+MODEL_LAST_TRAINED = "2025-05-22 19:55:00"  # Updated to current time
 
 # Define save_dir globally
 save_dir = './'
@@ -78,7 +76,7 @@ except Exception as e:
     logger.error(f"Dataset loading failed: {str(e)}")
     st.stop()
 
-# Data Preprocessing with Dynamic Customer Segmentation
+# Data Preprocessing
 missing_values = df.isna().sum().sum()
 df['claim_risk'] = (df['claim_amount_SZL'] >= df['claim_amount_SZL'].quantile(0.75)).astype(int)
 df.fillna(df.median(numeric_only=True), inplace=True)
@@ -94,11 +92,20 @@ for col in date_cols:
         df[f'{col}_day'] = df[col].dt.day
         df = df.drop(columns=[col])
 
-# Dynamic Customer Segmentation using K-means
+# Dynamic Customer Segmentation using K-means (single approach with silhouette score)
 numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
-X_segment = df[numeric_cols].drop(columns=['claim_risk'], errors='ignore')
-kmeans = KMeans(n_clusters=4, random_state=42)
+X_segment = df[numeric_cols].drop(columns=['claim_risk'], errors='ignore').replace([np.inf, -np.inf], np.nan).dropna()
+silhouette = []
+range_n_clusters = range(2, 10)
+for n_clusters in range_n_clusters:
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    labels = kmeans.fit_predict(X_segment)
+    silhouette.append(silhouette_score(X_segment, labels))
+optimal_clusters = range_n_clusters[np.argmax(silhouette)]
+kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
 df['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
+
+# Define categorical columns
 categorical_cols = ['claim_type', 'gender', 'location', 'policy_type', 'insurance_provider', 'customer_segment']
 for col in df.columns:
     if df[col].dtype == 'object' and col not in date_cols and col not in ['claim_amount_SZL', 'claim_risk']:
@@ -118,7 +125,7 @@ train_data_balanced = pd.concat([majority, minority_oversampled])
 X_train_balanced = train_data_balanced.drop(columns=['claim_risk'])
 y_train_balanced = train_data_balanced['claim_risk']
 
-# Train Random Forest Model
+# Train Random Forest Model with Feature Selection
 rf = RandomForestClassifier(
     n_estimators=300,
     class_weight={0: 1.0, 1: 2.5},
@@ -126,44 +133,38 @@ rf = RandomForestClassifier(
     min_samples_leaf=5,
     random_state=42
 )
-rf.fit(X_train_balanced, y_train_balanced)
-y_pred_rf = rf.predict(X_test)
-logger.info("Random Forest model trained and evaluated.")
-    # --- ROC Curve ---
+# Feature selection using RandomForest
+selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
+selector_model.fit(X_train_balanced, y_train_balanced)
+selector = SelectFromModel(selector_model, prefit=True)
+X_train_selected = selector.transform(X_train_balanced)
+X_test_selected = selector.transform(X_test)
+selected_features = X.columns[selector.get_support()]
+logger.info(f"Selected features: {selected_features.tolist()}")
+rf.fit(X_train_selected, y_train_balanced)
+y_pred_rf = rf.predict(X_test_selected)
 report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
-fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
+fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test_selected)[:, 1])
 roc_auc = auc(fpr, tpr)
 if recall_class_1 > 0.39:
     logger.info(f"Model saved. Recall for class 1: {recall_class_1}")
 else:
     logger.info(f"Model not saved. Recall for class 1: {recall_class_1} (below 0.39 threshold)")
 
-    # --- Clustering ---
-silhouette = []
-range_n_clusters = range(2, 10)
-X_segment = X.select_dtypes(include=[np.number]).replace([np.inf, -np.inf], np.nan).dropna()
-for n_clusters in range_n_clusters:
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        labels = kmeans.fit_predict(X_segment)
-        silhouette.append(silhouette_score(X_segment, labels))
-optimal_clusters = range_n_clusters[np.argmax(silhouette)]
-kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
-df_cleaned['customer_segment'] = kmeans.fit_predict(X_segment).astype(str)
-
-    # --- Metrics Display ---
+# Metrics Display
 st.subheader("Key Metrics")
 cols = st.columns(4)
 metrics = [
-        {"label": "Total Records", "value": len(df)},
-        {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
-        {"label": "Missing Values", "value": df.isnull().sum().sum()},
-        {"label": "Selected Features", "value": len(selected_features)}
-    ]
+    {"label": "Total Records", "value": len(df)},
+    {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
+    {"label": "Missing Values", "value": df.isnull().sum().sum()},
+    {"label": "Selected Features", "value": len(selected_features)}
+]
 for col, metric in zip(cols, metrics):
-       col.metric(label=metric["label"], value=metric["value"])
+    col.metric(label=metric["label"], value=metric["value"])
 
-        # --- Plot ROC Curve ---
+# Plot ROC Curve
 fig, ax = plt.subplots()
 ax.plot(fpr, tpr, label=f'AUC = {roc_auc:.2f}')
 ax.plot([0, 1], [0, 1], 'k--')
@@ -173,27 +174,15 @@ ax.set_title('ROC Curve')
 ax.legend()
 st.pyplot(fig)
 
-        # --- Classification Report ---
+# Classification Report
 st.subheader("Classification Report")
 st.json(report)
 
 st.success("Model trained and results displayed successfully!")
 
 # Map Functions with Segmentations
-
-
-
-
 def init_map(center=(-26.5, 31.5), zoom_start=7, map_type="cartodbpositron"):
     return folium.Map(location=center, zoom_start=zoom_start, tiles=map_type)
-
-def create_point_map(df):
-    df[['Latitude', 'Longitude']] = df[['Latitude', 'Longitude']].apply(pd.to_numeric, errors='coerce')
-    df['coordinates'] = df[['Latitude', 'Longitude']].values.tolist()
-    df['coordinates'] = df['coordinates'].apply(Point)
-    df = geopandas.GeoDataFrame(df, geometry='coordinates')
-    df = df.dropna(subset=['Latitude', 'Longitude', 'coordinates'])
-    return df
 
 def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selected_segments):
     region_coords = {
@@ -205,22 +194,23 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
     
-    # Choropleth style
-    folium.Choropleth(
-        geo_data='eswatini_regions.geojson',  # Add a GeoJSON file for Eswatini regions
-        name='choropleth',
-        data=risk_by_region,
-        columns=['location', 'claim_risk'],
-        key_on='feature.properties.name',
-        fill_color='YlOrRd',
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        legend_name='Average Claim Risk'
-    ).add_to(folium_map)
+    # Skip Choropleth if GeoJSON is unavailable
+    try:
+        folium.Choropleth(
+            geo_data='eswatini_regions.geojson',
+            name='choropleth',
+            data=risk_by_region,
+            columns=['location', 'claim_risk'],
+            key_on='feature.properties.name',
+            fill_color='YlOrRd',
+            fill_opacity=0.7,
+            line_opacity=0.2,
+            legend_name='Average Claim Risk'
+        ).add_to(folium_map)
+    except FileNotFoundError:
+        logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
+        st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
 
-    # Gauge for overall risk
-    folium.plugins.MiniMap().add_to(folium_map)  # Optional mini-map
-    return folium_map
     # Aggregate risk by region and segment
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
@@ -229,11 +219,11 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     
     # Ensure sufficient unique values for qcut
     if risk_by_region_segment['claim_risk'].nunique() > 1:
-        # Calculate quantiles manually to avoid bin edge issues
         quantiles = risk_by_region_segment['claim_risk'].quantile([0, 0.33, 0.66, 1]).values
         risk_by_region_segment['risk_level'] = pd.cut(risk_by_region_segment['claim_risk'], bins=quantiles, labels=['Low', 'Medium', 'High'], include_lowest=True)
     else:
-        risk_by_region_segment['risk_level'] = 'Low'  # Default if not enough variance
+        risk_by_region_segment['risk_level'] = 'Low'
+        logger.info("Not enough variance in claim_risk for binning. Defaulting to 'Low' risk level.")
 
     # Apply filters
     if selected_risk_levels:
@@ -263,9 +253,13 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
         ).add_to(folium_map)
 
     # Add heatmap for high-risk claims
+    df['Latitude'] = df['location'].map(lambda x: region_coords.get(x, (-26.5, 31.5))[0])
+    df['Longitude'] = df['location'].map(lambda x: region_coords.get(x, (-26.5, 31.5))[1])
     heat_data = [[row['Latitude'], row['Longitude']] for _, row in df.iterrows() if row['claim_risk'] == 1]
     HeatMap(heat_data, radius=15).add_to(folium_map)
+    folium.plugins.MiniMap().add_to(folium_map)
     return folium_map
+
 @st.cache_data
 def load_map(df, selected_risk_levels, selected_regions, selected_segments):
     m = init_map()
@@ -303,7 +297,7 @@ with col1:
         logger.info("Predict button clicked")
         try:
             input_df = pd.DataFrame([input_data])
-            expected_features = rf.feature_names_in_ if hasattr(rf, 'feature_names_in_') else X_test.columns
+            expected_features = selected_features
             input_df_encoded = pd.get_dummies(input_df, columns=categorical_cols, drop_first=False)
             for col in expected_features:
                 if col not in input_df_encoded.columns:
@@ -329,16 +323,14 @@ with col1:
                 pred_log.to_csv(log_file, index=False)
             logger.info("Prediction saved to prediction_log.csv")
 
-            # Drift Detection (Moved here)
-            from scipy.stats import ks_2samp
+            # Drift Detection (Simplified - placeholder for proper implementation)
             drift_feature = 'claim_amount_SZL'
             if drift_feature in df.columns:
                 original_dist = df[drift_feature].values
                 current_dist = pd.DataFrame([input_data]).get(drift_feature, [df[drift_feature].mean()])[0]
-                stat, p_value = ks_2samp(original_dist, np.array([current_dist] * len(original_dist)))
-                if p_value < 0.05:
-                    st.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f}). Consider retraining the model.")
-                    logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
+                # Note: This is a placeholder; proper drift detection requires a better approach
+                st.info("Drift detection is currently a placeholder. A proper implementation is needed.")
+                logger.info("Drift detection placeholder executed.")
 
         except Exception as e:
             st.error(f"Prediction failed: {str(e)}")
@@ -350,7 +342,7 @@ with st.expander("Model Performance", expanded=True):
     with col4:
         st.header("Confusion Matrix")
         try:
-            y_pred = rf.predict(X_test)
+            y_pred = rf.predict(X_test_selected)
             cm = confusion_matrix(y_test, y_pred)
             fig_cm = plt.figure(figsize=(6, 4))
             sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Low Risk', 'High Risk'], yticklabels=['Low Risk', 'High Risk'])
@@ -362,7 +354,7 @@ with st.expander("Model Performance", expanded=True):
     with col5:
         st.header("ROC Curve")
         try:
-            fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
+            fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test_selected)[:, 1])
             fig_roc = px.line(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels={'x': 'FPR', 'y': 'TPR'})
             fig_roc.add_scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(dash='dash', color='gray'))
             fig_roc.update_layout(template="plotly_dark", height=300)
@@ -370,23 +362,25 @@ with st.expander("Model Performance", expanded=True):
             st.text(f"Recall for High Risk: {recall_class_1:.2f}")
         except Exception as e:
             st.error(f"ROC plotting failed: {str(e)}")
-            
+
+    # Risk Trend Over Time (fixed column definition)
+    col6, _ = st.columns([1, 1])
     with col6:
-       st.header("Risk Trend Over Time")
-    try:
-        log_file = os.path.join(save_dir, 'prediction_log.csv')
-        if os.path.exists(log_file):
-            pred_log = pd.read_csv(log_file)
-            pred_log['timestamp'] = pd.to_datetime(pred_log['timestamp'])
-            fig_trend = px.line(pred_log, x='timestamp', y='probability_high_risk', title="High Risk Probability Trend", markers=True)
-            fig_trend.update_layout(height=300)
-            st.plotly_chart(fig_trend, use_container_width=True)
-            logger.info("Risk trend plot rendered")
-        else:
-            st.info("No prediction history available to display trends.")
-    except Exception as e:
-        st.error(f"Risk trend plotting failed: {str(e)}")
-        logger.error(f"Risk trend plotting failed: {str(e)}")
+        st.header("Risk Trend Over Time")
+        try:
+            log_file = os.path.join(save_dir, 'prediction_log.csv')
+            if os.path.exists(log_file):
+                pred_log = pd.read_csv(log_file)
+                pred_log['timestamp'] = pd.to_datetime(pred_log['timestamp'])
+                fig_trend = px.line(pred_log, x='timestamp', y='probability_high_risk', title="High Risk Probability Trend", markers=True)
+                fig_trend.update_layout(height=300)
+                st.plotly_chart(fig_trend, use_container_width=True)
+                logger.info("Risk trend plot rendered")
+            else:
+                st.info("No prediction history available to display trends.")
+        except Exception as e:
+            st.error(f"Risk trend plotting failed: {str(e)}")
+            logger.error(f"Risk trend plotting failed: {str(e)}")
 
 # Section 3: Feature Importance and Risk Distributions
 col7, col8, col9 = st.columns([1, 1, 1])
@@ -395,27 +389,21 @@ with col7:
     with st.spinner("Computing SHAP values..."):
         try:
             explainer = shap.TreeExplainer(rf)
-            sample_data = X_test.sample(50, random_state=42)
-            sample_encoded = pd.get_dummies(sample_data, columns=[col for col in categorical_cols if col in sample_data.columns], drop_first=False)
-            expected_features = rf.feature_names_in_ if hasattr(rf, 'feature_names_in_') else X_test.columns
-            for col in expected_features:
-                if col not in sample_encoded.columns:
-                    sample_encoded[col] = 0
-            sample_encoded = sample_encoded[expected_features].values
-            shap_values = explainer.shap_values(sample_encoded)
+            sample_data = X_test.loc[:, selected_features].sample(50, random_state=42)
+            shap_values = explainer.shap_values(sample_data.values)
             if isinstance(shap_values, list):
                 shap_values = shap_values[1]
-            shap_values = np.array(shap_values).reshape(-1, len(expected_features))
+            shap_values = np.array(shap_values).reshape(-1, len(selected_features))
             st.subheader("Features Used in SHAP Analysis")
-            st.write(list(expected_features))
+            st.write(list(selected_features))
             fig_shap = plt.figure(figsize=(10, 6))
-            shap.summary_plot(shap_values, sample_encoded, feature_names=expected_features, max_display=5, show=False, plot_type="bar")
+            shap.summary_plot(shap_values, sample_data.values, feature_names=selected_features, max_display=5, show=False, plot_type="bar")
             if plt.gcf().axes:
                 plt.title('Top Features for High Risk')
                 plt.tight_layout()
                 st.pyplot(fig_shap)
                 plt.savefig('shap_plot.png')
-            shap_df = pd.DataFrame({'Feature': expected_features, 'SHAP Value': np.abs(shap_values).mean(axis=0)}).sort_values(by='SHAP Value', ascending=False).head(5)
+            shap_df = pd.DataFrame({'Feature': selected_features, 'SHAP Value': np.abs(shap_values).mean(axis=0)}).sort_values(by='SHAP Value', ascending=False).head(5)
             st.session_state['shap_df'] = shap_df
             logger.info("SHAP plot rendered")
         except Exception as e:
@@ -423,19 +411,21 @@ with col7:
             logger.error(f"SHAP plot failed: {str(e)}")
 
 with col8:
-   col8, col9 = st.columns(2)
-with col8:
     st.header("Risk by Location")
+    risk_by_location = df.groupby('location')['claim_risk'].mean().reset_index()
     fig_loc = px.bar(risk_by_location, x='location', y='claim_risk', title="Average Risk by Location (%)",
                      color='claim_risk', color_continuous_scale='Blues', height=300)
     fig_loc.update_layout(template="plotly_dark")
     st.plotly_chart(fig_loc)
+
 with col9:
     st.header("Risk by Claim Type")
+    risk_by_claim_type = df.groupby('claim_type')['claim_risk'].mean().reset_index()
     fig_claim = px.bar(risk_by_claim_type, x='claim_type', y='claim_risk', title="Average Risk by Claim Type (%)",
                        color='claim_risk', color_continuous_scale='Blues', height=300)
     fig_claim.update_layout(template="plotly_dark")
     st.plotly_chart(fig_claim)
+
 # Section 4: Segmentation Drill-down
 col10, col11 = st.columns([1, 1])
 with col10:
@@ -443,7 +433,6 @@ with col10:
     segment = st.selectbox("Select Customer Segment", df['customer_segment'].unique())
     segment_data = df[df['customer_segment'] == segment]
     try:
-        # Check for variance in claim_amount_SZL to avoid binning issues
         if segment_data['claim_amount_SZL'].nunique() > 1:
             fig_segment_trend = px.histogram(segment_data, x='claim_amount_SZL', color='claim_risk', title=f"Claim Amount Distribution in {segment}", nbins=20)
         else:
@@ -460,17 +449,18 @@ with col10:
 with col11:
     st.header("Top Features for Segment")
     try:
-        segment_encoded = pd.get_dummies(segment_data.drop(columns=['claim_amount_SZL', 'claim_risk']), columns=categorical_cols, drop_first=False)
-        for col in expected_features:
+        segment_data = segment_data.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude'])
+        segment_encoded = pd.get_dummies(segment_data, columns=categorical_cols, drop_first=False)
+        for col in selected_features:
             if col not in segment_encoded.columns:
                 segment_encoded[col] = 0
-        segment_encoded = segment_encoded[expected_features].values
+        segment_encoded = segment_encoded[selected_features].values
         shap_values_segment = explainer.shap_values(segment_encoded)
         if isinstance(shap_values_segment, list):
             shap_values_segment = shap_values_segment[1]
-        shap_values_segment = np.array(shap_values_segment).reshape(-1, len(expected_features))
+        shap_values_segment = np.array(shap_values_segment).reshape(-1, len(selected_features))
         fig_shap_segment = plt.figure(figsize=(10, 6))
-        shap.summary_plot(shap_values_segment, segment_encoded, feature_names=expected_features, max_display=5, show=False, plot_type="bar")
+        shap.summary_plot(shap_values_segment, segment_encoded, feature_names=selected_features, max_display=5, show=False, plot_type="bar")
         if plt.gcf().axes:
             plt.title(f'Top Features for {segment}')
             plt.tight_layout()
@@ -509,17 +499,18 @@ with col12:
                     fig_region_dist.update_layout(height=300)
                     st.plotly_chart(fig_region_dist, use_container_width=True)
                 sample_region = region_data.sample(min(20, len(region_data)), random_state=42)
-                sample_encoded_region = pd.get_dummies(sample_region.drop(columns=['claim_amount_SZL', 'claim_risk']), columns=categorical_cols, drop_first=False)
-                for col in expected_features:
+                sample_region = sample_region.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude'])
+                sample_encoded_region = pd.get_dummies(sample_region, columns=categorical_cols, drop_first=False)
+                for col in selected_features:
                     if col not in sample_encoded_region.columns:
                         sample_encoded_region[col] = 0
-                sample_encoded_region = sample_encoded_region[expected_features].values
+                sample_encoded_region = sample_encoded_region[selected_features].values
                 shap_values_region = explainer.shap_values(sample_encoded_region)
                 if isinstance(shap_values_region, list):
                     shap_values_region = shap_values_region[1]
-                shap_values_region = np.array(shap_values_region).reshape(-1, len(expected_features))
+                shap_values_region = np.array(shap_values_region).reshape(-1, len(selected_features))
                 fig_shap_region = plt.figure(figsize=(10, 6))
-                shap.summary_plot(shap_values_region, sample_encoded_region, feature_names=expected_features, max_display=5, show=False, plot_type="bar")
+                shap.summary_plot(shap_values_region, sample_encoded_region, feature_names=selected_features, max_display=5, show=False, plot_type="bar")
                 if plt.gcf().axes:
                     plt.title(f'Top Features for High Risk in {selected_region}')
                     plt.tight_layout()
@@ -552,11 +543,12 @@ def generate_pdf():
             y_position -= 15
     c.save()
     return pdf_file
-# Example usage in your app
+
 if st.button("Download PDF Report"):
     pdf_file = generate_pdf()
     with open(pdf_file, "rb") as f:
         st.download_button("Download PDF", f, file_name="report.pdf")
+
 # Notes
 st.markdown("**Note**: Ensure the dataset is available. Risk map uses claim risk data to highlight high-risk areas.", unsafe_allow_html=True)
 st.markdown(f"**Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", unsafe_allow_html=True)
