@@ -130,7 +130,6 @@ rf.fit(X_train_balanced, y_train_balanced)
 y_pred_rf = rf.predict(X_test)
 logger.info("Random Forest model trained and evaluated.")
     # --- ROC Curve ---
-# Model Metrics
 report = classification_report(y_test, y_pred_rf, output_dict=True)
 recall_class_1 = report['1']['recall']
 fpr, tpr, _ = roc_curve(y_test, rf.predict_proba(X_test)[:, 1])
