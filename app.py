@@ -447,4 +447,244 @@ with col7:
                 st.pyplot(fig_shap)
                 plt.savefig('shap_plot.png')
             shap_df = pd.DataFrame({'Feature': selected_features, 'SHAP Value': np.abs(shap_values).mean(axis=0)}).sort_values(by='SHAP Value', ascending=False).head(5)
-            st.session_state['shap_df
+            st.session_state['shap_df'] = shap_df
+            logger.info("SHAP plot rendered")
+        except Exception as e:
+            st.error(f"SHAP plot failed: {str(e)}")
+            logger.error(f"SHAP plot failed: {str(e)}")
+
+with col8:
+    st.header("Risk by Location")
+    risk_by_location = df.groupby('location')['claim_risk'].mean().reset_index()
+    fig_loc = px.bar(risk_by_location, x='location', y='claim_risk', title="Average Risk by Location (%)",
+                     color='claim_risk', color_continuous_scale='Blues', height=300)
+    fig_loc.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_loc)
+
+with col9:
+    st.header("Risk by Claim Type")
+    risk_by_claim_type = df.groupby('claim_type')['claim_risk'].mean().reset_index()
+    fig_claim = px.bar(risk_by_claim_type, x='claim_type', y='claim_risk', title="Average Risk by Claim Type (%)",
+                       color='claim_risk', color_continuous_scale='Blues', height=300)
+    fig_claim.update_layout(template="plotly_dark")
+    st.plotly_chart(fig_claim)
+
+# Section 4: Segmentation Drill-down with Optimized Visualizations
+col10, col11 = st.columns([1, 1])
+with col10:
+    st.header("Customer Segment Drill-down")
+    segment = st.selectbox("Select Customer Segment", df['customer_segment'].unique())
+    segment_data = df[df['customer_segment'] == segment]
+    try:
+        if segment_data['claim_amount_SZL'].nunique() > 1:
+            fig_segment_trend = px.histogram(segment_data, x='claim_amount_SZL', color='claim_risk', title=f"Claim Amount Distribution in {segment}", nbins=20)
+        else:
+            raise ValueError("Not enough variance in data for histogram")
+        fig_segment_trend.update_layout(height=300)
+        st.plotly_chart(fig_segment_trend, use_container_width=True)
+    except ValueError as e:
+        st.warning(f"Histogram failed: {str(e)}. Using bar plot instead.")
+        fig_segment_trend = px.bar(segment_data.groupby('claim_risk').size().reset_index(name='Count'), x='claim_risk', y='Count', title=f"Risk Distribution in {segment}")
+        fig_segment_trend.update_layout(height=300)
+        st.plotly_chart(fig_segment_trend, use_container_width=True)
+    
+    # Stacked Bar Chart of Risk Factors by Segment (Optimized)
+    st.subheader("Risk Factor Contribution by Segment")
+    try:
+        segment_shap_values = {}
+        # Limit to a sample to prevent infinite computation
+        sample_size = min(100, len(segment_data))  # Cap at 100 samples
+        for seg in df['customer_segment'].unique():
+            seg_data_seg = df[df['customer_segment'] == seg].sample(n=sample_size, random_state=42)
+            columns_to_drop = ['claim_amount_SZL', 'claim_risk']
+            columns_to_drop = [col for col in columns_to_drop if col in seg_data_seg.columns]
+            seg_encoded = pd.get_dummies(seg_data_seg.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
+            for col in selected_features:
+                if col not in seg_encoded.columns:
+                    seg_encoded[col] = 0
+            seg_encoded = seg_encoded[selected_features]
+            if len(seg_encoded) > 0:
+                seg_shap = explainer.shap_values(seg_encoded.head(50).values)  # Limit SHAP to 50 rows
+                if isinstance(seg_shap, list):
+                    seg_shap = seg_shap[1]
+                segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0) if seg_shap.size > 0 else np.zeros(len(selected_features))
+            else:
+                segment_shap_values[seg] = np.zeros(len(selected_features))
+        
+        shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
+        if not shap_by_segment.empty:
+            top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
+            fig_stacked = px.bar(
+                shap_by_segment.reset_index(),
+                x='customer_segment',
+                y=[top_features[0], top_features[1]],
+                title="Top Risk Factors by Segment",
+                labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
+                barmode='stack',
+                color_discrete_sequence=['#00CC96', '#EF553B']
+            )
+            fig_stacked.update_layout(height=300)
+            st.plotly_chart(fig_stacked, use_container_width=True)
+        else:
+            st.warning("No data available for stacked bar chart.")
+    except Exception as e:
+        st.warning(f"Stacked bar chart failed: {str(e)}")
+
+    # Radar Chart for Risk Profile Comparison (Optimized)
+    st.subheader("Risk Profile Comparison Across Segments")
+    try:
+        segment_profiles = {}
+        sample_size = min(100, len(df))  # Cap at 100 samples
+        sampled_df = df.sample(n=sample_size, random_state=42)
+        for seg in sampled_df['customer_segment'].unique():
+            seg_data = sampled_df[sampled_df['customer_segment'] == seg]
+            profile = {
+                'Risk Level': seg_data['claim_risk'].mean(),
+                'Premium': seg_data['policy_annual_premium'].mean() if 'policy_annual_premium' in seg_data.columns else 0,
+                'Age': seg_data['insured_age'].mean() if 'insured_age' in seg_data.columns else 0,
+                'Incident Severity': seg_data['incident_severity'].mean() if 'incident_severity' in seg_data.columns else 0
+            }
+            for key in profile:
+                if key == 'Risk Level':
+                    profile[key] = profile[key]
+                elif key in df.columns:
+                    profile[key] = (profile[key] - df[key].min()) / (df[key].max() - df[key].min()) if df[key].max() != df[key].min() else 0
+                else:
+                    profile[key] = 0
+            segment_profiles[seg] = profile
+        
+        radar_data = []
+        for seg, profile in segment_profiles.items():
+            radar_data.append({
+                'Segment': f"Segment {seg}",
+                'Risk Level': profile['Risk Level'],
+                'Premium': profile['Premium'],
+                'Age': profile['Age'],
+                'Incident Severity': profile['Incident Severity']
+            })
+        radar_df = pd.DataFrame(radar_data)
+        if not radar_df.empty:
+            fig_radar = px.line_polar(
+                radar_df.melt(id_vars='Segment', var_name='Metric', value_name='Value'),
+                r='Value',
+                theta='Metric',
+                color='Segment',
+                line_close=True,
+                title="Risk Profile Comparison Across Segments",
+                color_discrete_sequence=['#00CC96', '#EF553B', '#AB63FA', '#FFA15A']
+            )
+            fig_radar.update_layout(height=400)
+            st.plotly_chart(fig_radar, use_container_width=True)
+        else:
+            st.warning("No data available for radar chart.")
+    except Exception as e:
+        st.warning(f"Radar chart failed: {str(e)}")
+    logger.info(f"Segment trend and new visualizations rendered for {segment}")
+
+with col11:
+    st.header("Top Features for Segment")
+    try:
+        columns_to_drop = ['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude']
+        columns_to_drop = [col for col in columns_to_drop if col in segment_data.columns]
+        segment_data = segment_data.drop(columns=columns_to_drop)
+        segment_encoded = pd.get_dummies(segment_data, columns=categorical_cols, drop_first=False)
+        for col in selected_features:
+            if col not in segment_encoded.columns:
+                segment_encoded[col] = 0
+        segment_encoded = segment_encoded[selected_features].values
+        shap_values_segment = explainer.shap_values(segment_encoded[:50])  # Limit to 50 rows
+        if isinstance(shap_values_segment, list):
+            shap_values_segment = shap_values_segment[1]
+        shap_values_segment = np.array(shap_values_segment).reshape(-1, len(selected_features))
+        fig_shap_segment = plt.figure(figsize=(10, 6))
+        shap.summary_plot(shap_values_segment, segment_encoded[:50], feature_names=selected_features, max_display=5, show=False, plot_type="bar")
+        if plt.gcf().axes:
+            plt.title(f'Top Features for {segment}')
+            plt.tight_layout()
+            st.pyplot(fig_shap_segment)
+        logger.info(f"SHAP plot for segment {segment} rendered")
+    except Exception as e:
+        st.error(f"SHAP plot for segment failed: {str(e)}")
+        logger.error(f"SHAP plot for segment failed: {str(e)}")
+
+# Section 5: Interactive Eswatini Risk Map with Segmentations
+col12 = st.columns([3])[0]
+with col12:
+    st.header("Interactive Eswatini Risk Map with Segmentations")
+    risk_levels = st.multiselect("Filter by Risk Level", ['Low', 'Medium', 'High'], default=['Low', 'Medium', 'High'])
+    regions = st.multiselect("Filter by Region", ['Lubombo', 'Hhohho', 'Manzini', 'Shiselweni'], default=['Lubombo', 'Hhohho', 'Manzini', 'Shiselweni'])
+    customer_segments = st.multiselect("Filter by Customer Segment", df['customer_segment'].unique(), default=df['customer_segment'].unique())
+    try:
+        m = load_map(df, risk_levels, regions, customer_segments)
+        map_data = folium_static(m, height=500, width=1000)
+        selected_region = None
+        if selected_region:
+            st.subheader(f"Risk Analysis for {selected_region}")
+            region_data = df[df['location'] == selected_region]
+            if not region_data.empty:
+                try:
+                    if region_data['claim_amount_SZL'].nunique() > 1:
+                        fig_region_dist = px.histogram(region_data, x='claim_amount_SZL', color='claim_risk', title=f"Claim Amount Distribution in {selected_region}", nbins=20)
+                    else:
+                        raise ValueError("Not enough variance in data for histogram")
+                    fig_region_dist.update_layout(height=300)
+                    st.plotly_chart(fig_region_dist, use_container_width=True)
+                except ValueError as e:
+                    st.warning(f"Histogram failed: {str(e)}. Using bar plot instead.")
+                    fig_region_dist = px.bar(region_data.groupby('claim_risk').size().reset_index(name='Count'), x='claim_risk', y='Count', title=f"Risk Distribution in {selected_region}")
+                    fig_region_dist.update_layout(height=300)
+                    st.plotly_chart(fig_region_dist, use_container_width=True)
+                sample_region = region_data.sample(min(20, len(region_data)), random_state=42)
+                sample_region = sample_region.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude'])
+                sample_encoded_region = pd.get_dummies(sample_region, columns=categorical_cols, drop_first=False)
+                for col in selected_features:
+                    if col not in sample_encoded_region.columns:
+                        sample_encoded_region[col] = 0
+                sample_encoded_region = sample_encoded_region[selected_features].values
+                shap_values_region = explainer.shap_values(sample_encoded_region)
+                if isinstance(shap_values_region, list):
+                    shap_values_region = shap_values_region[1]
+                shap_values_region = np.array(shap_values_region).reshape(-1, len(selected_features))
+                fig_shap_region = plt.figure(figsize=(10, 6))
+                shap.summary_plot(shap_values_region, sample_encoded_region, feature_names=selected_features, max_display=5, show=False, plot_type="bar")
+                if plt.gcf().axes:
+                    plt.title(f'Top Features for High Risk in {selected_region}')
+                    plt.tight_layout()
+                    st.pyplot(fig_shap_region)
+            else:
+                st.warning(f"No data available for {selected_region}.")
+        logger.info("Interactive map and region analysis rendered")
+    except Exception as e:
+        st.error(f"Map rendering or analysis failed: {str(e)}")
+        logger.error(f"Map rendering or analysis failed: {str(e)}")
+
+# Section 6: Downloadable Reports and Data
+def generate_pdf():
+    pdf_file = "insurance_risk_report.pdf"
+    c = canvas.Canvas(pdf_file, pagesize=letter)
+    y_position = 750
+    c.drawString(100, y_position, "Insurance Risk Report")
+    y_position -= 20
+    c.drawString(100, y_position, f"Generated on: {datetime.now()}")
+    y_position -= 20
+    c.drawString(100, y_position, f"Model AUC: {roc_auc:.2f}")
+    y_position -= 20
+    c.drawString(100, y_position, f"Recall for High Risk: {recall_class_1:.2f}")
+    y_position -= 30
+    c.drawString(100, y_position, "Top Features (SHAP):")
+    y_position -= 20
+    if 'shap_df' in st.session_state:
+        for i, row in st.session_state['shap_df'].iterrows():
+            c.drawString(100, y_position, f"{row['Feature']}: {row['SHAP Value']:.4f}")
+            y_position -= 15
+    c.save()
+    return pdf_file
+
+if st.button("Download PDF Report"):
+    pdf_file = generate_pdf()
+    with open(pdf_file, "rb") as f:
+        st.download_button("Download PDF", f, file_name="report.pdf")
+
+# Notes
+st.markdown("**Note**: Ensure the dataset is available. Risk map uses claim risk data to highlight high-risk areas.", unsafe_allow_html=True)
+st.markdown(f"**Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", unsafe_allow_html=True)
