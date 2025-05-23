@@ -434,7 +434,7 @@ with st.expander("Model Performance", expanded=True):
         except Exception as e:
             st.error(f"ROC plotting failed: {str(e)}")
 
-    # Time Series Line Graph for Claim Risk Over Time
+    # Time Series Line Graph for Claim Risk Over Time using Chart.js
     with col5:
         st.header("Claim Risk Over Time")
         try:
@@ -446,17 +446,94 @@ with st.expander("Model Performance", expanded=True):
             }))
             risk_over_time = df.groupby(df['claim_date'].dt.to_period('M'))['claim_risk'].mean().reset_index()
             risk_over_time['claim_date'] = risk_over_time['claim_date'].dt.to_timestamp()
-            fig_time_series = px.line(
-                risk_over_time,
-                x='claim_date',
-                y='claim_risk',
-                title="Average Claim Risk Over Time (Monthly)",
-                labels={'claim_date': 'Date', 'claim_risk': 'Average Claim Risk'},
-                markers=True,
-                color_discrete_sequence=['#1E90FF']
-            )
-            fig_time_series.update_layout(height=300)
-            st.plotly_chart(fig_time_series, use_container_width=True)
+
+            # Prepare data for Chart.js
+            labels = risk_over_time['claim_date'].dt.strftime('%Y-%m').tolist()
+            data = risk_over_time['claim_risk'].tolist()
+
+            # Chart.js Line Graph
+            chart_config = {
+                "type": "line",
+                "data": {
+                    "labels": labels,
+                    "datasets": [{
+                        "label": "Average Claim Risk",
+                        "data": data,
+                        "borderColor": "#1E90FF",
+                        "backgroundColor": "rgba(30, 144, 255, 0.1)",
+                        "fill": True,
+                        "tension": 0.4,
+                        "pointRadius": 3,
+                        "pointHoverRadius": 5
+                    }]
+                },
+                "options": {
+                    "responsive": true,
+                    "plugins": {
+                        "title": {
+                            "display": true,
+                            "text": "Average Claim Risk Over Time (Monthly)",
+                            "color": "#1E90FF",
+                            "font": {
+                                "family": "Roboto",
+                                "size": 16
+                            }
+                        },
+                        "legend": {
+                            "labels": {
+                                "color": "#4A4A4A",
+                                "font": {
+                                    "family": "Roboto"
+                                }
+                            }
+                        }
+                    },
+                    "scales": {
+                        "x": {
+                            "title": {
+                                "display": true,
+                                "text": "Date",
+                                "color": "#4A4A4A",
+                                "font": {
+                                    "family": "Roboto"
+                                }
+                            },
+                            "ticks": {
+                                "color": "#4A4A4A",
+                                "maxRotation": 45,
+                                "minRotation": 45
+                            }
+                        },
+                        "y": {
+                            "title": {
+                                "display": true,
+                                "text": "Average Claim Risk",
+                                "color": "#4A4A4A",
+                                "font": {
+                                    "family": "Roboto"
+                                }
+                            },
+                            "ticks": {
+                                "color": "#4A4A4A"
+                            },
+                            "beginAtZero": True
+                        }
+                    }
+                }
+            }
+
+            # Display the chart
+            st.markdown("Here is the time series chart showing average claim risk over time:")
+            st.components.v1.html(f"""
+                <div style="background-color: transparent; padding: 10px;">
+                    <canvas id="claimRiskChart"></canvas>
+                </div>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script>
+                    const ctx = document.getElementById('claimRiskChart').getContext('2d');
+                    new Chart(ctx, {chart_config});
+                </script>
+            """.replace("{chart_config}", str(chart_config)), height=300)
 
             # Brief Analysis
             max_risk_date = risk_over_time.loc[risk_over_time['claim_risk'].idxmax(), 'claim_date']
@@ -468,8 +545,8 @@ with st.expander("Model Performance", expanded=True):
                 f"lowest risk ({min_risk_value:.2f}) in {min_risk_date.strftime('%B %Y')}. Investigate seasonal trends!"
             )
         except Exception as e:
-            st.error(f"Time series plot failed: {str(e)}")
-            logger.error(f"Time series plot failed: {str(e)}")
+            st.error(f"Time series chart failed: {str(e)}")
+            logger.error(f"Time series chart failed: {str(e)}")
 
     col6, _ = st.columns([1, 1])
     with col6:
