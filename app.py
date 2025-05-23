@@ -18,7 +18,7 @@ import folium
 from folium.plugins import HeatMap
 import geopandas
 from shapely.geometry import Point
-from streamlit_folium import st_folium
+from streamlit_folium import folium_static  # Changed to folium_static for better rendering
 from sklearn.metrics import confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
@@ -39,7 +39,7 @@ logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s 
 logger = logging.getLogger(__name__)
 MODEL_VERSION = "v1.0"
 DATASET_VERSION = "2025-05-20"
-MODEL_LAST_TRAINED = "2025-05-22 19:55:00"  # Updated to current time
+MODEL_LAST_TRAINED = "2025-05-22 19:55:00"
 
 # Define save_dir globally
 save_dir = './'
@@ -92,7 +92,7 @@ for col in date_cols:
         df[f'{col}_day'] = df[col].dt.day
         df = df.drop(columns=[col])
 
-# Dynamic Customer Segmentation using K-means (single approach with silhouette score)
+# Dynamic Customer Segmentation using K-means
 numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
 X_segment = df[numeric_cols].drop(columns=['claim_risk'], errors='ignore').replace([np.inf, -np.inf], np.nan).dropna()
 silhouette = []
@@ -114,11 +114,10 @@ for col in df.columns:
 df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
 
 # Split features and target with balancing
-# Split features and target with balancing
 X = df_encoded.drop(columns=['claim_amount_SZL', 'claim_risk'])
 y = df_encoded['claim_risk']
 
-# Apply ADASYN oversampling to the entire dataset before splitting
+# Apply ADASYN oversampling
 adasyn = ADASYN(random_state=42)
 X_balanced, y_balanced = adasyn.fit_resample(X, y)
 logger.info(f"X_balanced shape: {X_balanced.shape}, y_balanced shape: {y_balanced.shape}")
@@ -126,7 +125,7 @@ st.write(f"Class Distribution After ADASYN: {pd.Series(y_balanced).value_counts(
 
 # Split the balanced data
 X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, stratify=y_balanced, random_state=42)
-# Train Random Forest Model with Feature Selection
+
 # Train Random Forest Model with Feature Selection
 rf = RandomForestClassifier(
     n_estimators=300,
@@ -135,7 +134,6 @@ rf = RandomForestClassifier(
     min_samples_leaf=5,
     random_state=42
 )
-# Feature selection using RandomForest
 selector_model = RandomForestClassifier(n_estimators=100, random_state=42)
 selector_model.fit(X_train, y_train)
 selector = SelectFromModel(selector_model, prefit=True)
@@ -153,17 +151,31 @@ if recall_class_1 > 0.39:
     logger.info(f"Model saved. Recall for class 1: {recall_class_1}")
 else:
     logger.info(f"Model not saved. Recall for class 1: {recall_class_1} (below 0.39 threshold)")
-# Metrics Display
+
+# Metrics Display with Pie Chart
 st.subheader("Key Metrics")
-cols = st.columns(4)
+cols = st.columns(5)  # Adjusted to accommodate pie chart
 metrics = [
     {"label": "Total Records", "value": len(df)},
     {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
     {"label": "Missing Values", "value": df.isnull().sum().sum()},
     {"label": "Selected Features", "value": len(selected_features)}
 ]
-for col, metric in zip(cols, metrics):
+for col, metric in zip(cols[:4], metrics):
     col.metric(label=metric["label"], value=metric["value"])
+
+# New Visualization: Pie Chart of Risk Category Distribution
+with cols[4]:
+    st.subheader("Risk Category Distribution")
+    risk_counts = pd.Series(y_balanced).value_counts()
+    fig_pie = px.pie(
+        values=risk_counts.values,
+        names=['Low Risk', 'High Risk'],
+        title="Risk Category Distribution",
+        color_discrete_sequence=['#00CC96', '#EF553B']
+    )
+    fig_pie.update_layout(height=200, margin=dict(t=40, b=0, l=0, r=0))
+    st.plotly_chart(fig_pie, use_container_width=True)
 
 # Plot ROC Curve
 fig, ax = plt.subplots()
@@ -181,9 +193,19 @@ st.json(report)
 
 st.success("Model trained and results displayed successfully!")
 
-# Map Functions with Segmentations
-def init_map(center=(-26.5, 31.5), zoom_start=7, map_type="cartodbpositron"):
-    return folium.Map(location=center, zoom_start=zoom_start, tiles=map_type)
+# Map Functions with Segmentations (Updated to Fix Zoom Issue)
+def init_map():
+    # Set Eswatini center coordinates and fixed zoom
+    eswatini_center = [-26.5225, 31.4659]  # Approximate center of Eswatini
+    m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
+    
+    # Define Eswatini bounding box
+    eswatini_bounds = [
+        [-27.3, 30.7],  # Southwest corner (latitude, longitude)
+        [-25.7, 32.2]   # Northeast corner
+    ]
+    m.fit_bounds(eswatini_bounds)
+    return m
 
 def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selected_segments):
     region_coords = {
@@ -195,10 +217,11 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
     
-    # Skip Choropleth if GeoJSON is unavailable
+    # Add Choropleth layer if GeoJSON is available
     try:
+        geojson_path = 'eswatini_regions.geojson'
         folium.Choropleth(
-            geo_data='eswatini_regions.geojson',
+            geo_data=geojson_path,
             name='choropleth',
             data=risk_by_region,
             columns=['location', 'claim_risk'],
@@ -293,7 +316,7 @@ with col1:
         input_data[f'{col}_year'] = st.slider(f"{col} Year", 2000, 2025, 2020)
         input_data[f'{col}_month'] = st.slider(f"{col} Month", 1, 12, 6)
         input_data[f'{col}_day'] = st.slider(f"{col} Day", 1, 31, 15)
-        
+
 if st.button("Predict"):
     logger.info("Predict button clicked")
     try:
@@ -324,13 +347,13 @@ if st.button("Predict"):
             pred_log.to_csv(log_file, index=False)
         logger.info("Prediction saved to prediction_log.csv")
 
-        # Drift Detection
+        # Drift Detection with Line Chart
         drift_feature = 'probability_high_risk'
         if os.path.exists(log_file):
             pred_log_df = pd.read_csv(log_file)
             pred_log_df['timestamp'] = pd.to_datetime(pred_log_df['timestamp'])
-            recent_preds = pred_log_df[pred_log_df['timestamp'] > (pd.Timestamp.now() - pd.Timedelta(days=7))]  # Last 7 days
-            if len(recent_preds) > 10:  # Ensure enough samples
+            recent_preds = pred_log_df[pred_log_df['timestamp'] > (pd.Timestamp.now() - pd.Timedelta(days=7))]
+            if len(recent_preds) > 10:
                 original_dist = pred_log_df[drift_feature].dropna().values
                 recent_dist = recent_preds[drift_feature].dropna().values
                 stat, p_value = ks_2samp(original_dist, recent_dist)
@@ -339,6 +362,19 @@ if st.button("Predict"):
                     logger.warning(f"Data drift detected in {drift_feature} (p-value: {p_value:.4f})")
                 else:
                     logger.info(f"No significant drift detected (p-value: {p_value:.4f})")
+                
+                # New Visualization: Line Chart of Risk Drift Over Time
+                st.subheader("Risk Drift Over Time")
+                fig_drift = px.line(
+                    pred_log_df,
+                    x='timestamp',
+                    y='probability_high_risk',
+                    title="Risk Drift Over Time",
+                    markers=True,
+                    color_discrete_sequence=['#00CC96']
+                )
+                fig_drift.update_layout(height=300)
+                st.plotly_chart(fig_drift, use_container_width=True)
             else:
                 st.info("Not enough recent predictions for drift detection.")
         else:
@@ -347,6 +383,7 @@ if st.button("Predict"):
     except Exception as e:
         st.error(f"Prediction failed: {str(e)}")
         logger.error(f"Prediction failed: {str(e)}")
+
 # Section 2: Model Performance and Risk Trends
 with st.expander("Model Performance", expanded=True):
     col4, col5 = st.columns(2)
@@ -374,7 +411,7 @@ with st.expander("Model Performance", expanded=True):
         except Exception as e:
             st.error(f"ROC plotting failed: {str(e)}")
 
-    # Risk Trend Over Time (fixed column definition)
+    # Risk Trend Over Time with Heatmap
     col6, _ = st.columns([1, 1])
     with col6:
         st.header("Risk Trend Over Time")
@@ -386,7 +423,24 @@ with st.expander("Model Performance", expanded=True):
                 fig_trend = px.line(pred_log, x='timestamp', y='probability_high_risk', title="High Risk Probability Trend", markers=True)
                 fig_trend.update_layout(height=300)
                 st.plotly_chart(fig_trend, use_container_width=True)
-                logger.info("Risk trend plot rendered")
+                
+                # New Visualization: Heatmap of Risk Distribution Over Time
+                st.subheader("Risk Distribution Over Time (Heatmap)")
+                monthly_risk = pred_log.groupby(pred_log['timestamp'].dt.strftime('%Y-%m'))['probability_high_risk'].mean().reset_index()
+                monthly_risk['risk_score'] = monthly_risk['probability_high_risk']
+                fig_heatmap = px.scatter(
+                    monthly_risk,
+                    x='timestamp',
+                    y='risk_score',
+                    size='risk_score',
+                    color='risk_score',
+                    title="Risk Density Over Time",
+                    color_continuous_scale='Reds',
+                    labels={'timestamp': 'Month', 'risk_score': 'Risk Score'}
+                )
+                fig_heatmap.update_layout(height=300)
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+                logger.info("Risk trend and heatmap rendered")
             else:
                 st.info("No prediction history available to display trends.")
         except Exception as e:
@@ -437,7 +491,7 @@ with col9:
     fig_claim.update_layout(template="plotly_dark")
     st.plotly_chart(fig_claim)
 
-# Section 4: Segmentation Drill-down
+# Section 4: Segmentation Drill-down with New Visualizations
 col10, col11 = st.columns([1, 1])
 with col10:
     st.header("Customer Segment Drill-down")
@@ -455,7 +509,83 @@ with col10:
         fig_segment_trend = px.bar(segment_data.groupby('claim_risk').size().reset_index(name='Count'), x='claim_risk', y='Count', title=f"Risk Distribution in {segment}")
         fig_segment_trend.update_layout(height=300)
         st.plotly_chart(fig_segment_trend, use_container_width=True)
-    logger.info(f"Segment trend plot rendered for {segment}")
+    
+    # New Visualization: Stacked Bar Chart of Risk Factors by Segment
+    st.subheader("Risk Factor Contribution by Segment")
+    try:
+        # Compute average SHAP values for each segment
+        segment_shap_values = {}
+        for seg in df['customer_segment'].unique():
+            seg_data = df[df['customer_segment'] == seg]
+            seg_encoded = pd.get_dummies(seg_data.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude']), columns=categorical_cols, drop_first=False)
+            for col in selected_features:
+                if col not in seg_encoded.columns:
+                    seg_encoded[col] = 0
+            seg_encoded = seg_encoded[selected_features]
+            seg_shap = explainer.shap_values(seg_encoded.values)
+            if isinstance(seg_shap, list):
+                seg_shap = seg_shap[1]
+            segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0)
+        
+        # Prepare data for stacked bar chart
+        shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
+        top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
+        fig_stacked = px.bar(
+            shap_by_segment.reset_index(),
+            x='customer_segment',
+            y=[top_features[0], top_features[1]],
+            title="Top Risk Factors by Segment",
+            labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
+            barmode='stack',
+            color_discrete_sequence=['#00CC96', '#EF553B']
+        )
+        fig_stacked.update_layout(height=300)
+        st.plotly_chart(fig_stacked, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Stacked bar chart failed: {str(e)}")
+
+    # New Visualization: Radar Chart for Risk Profile Comparison
+    st.subheader("Risk Profile Comparison Across Segments")
+    try:
+        segment_profiles = {}
+        for seg in df['customer_segment'].unique():
+            seg_data = df[df['customer_segment'] == seg]
+            profile = {
+                'Claim Frequency': seg_data['claim_risk'].mean(),
+                'Premium': seg_data['policy_annual_premium'].mean() if 'policy_annual_premium' in seg_data.columns else 0,
+                'Age': seg_data['insured_age'].mean() if 'insured_age' in seg_data.columns else 0,
+                'Incident Severity': seg_data['incident_severity'].mean() if 'incident_severity' in seg_data.columns else 0
+            }
+            # Normalize values to [0,1]
+            for key in profile:
+                profile[key] = (profile[key] - df[key].min()) / (df[key].max() - df[key].min()) if df[key].max() != df[key].min() else 0
+            segment_profiles[seg] = profile
+        
+        # Prepare data for radar chart
+        radar_data = []
+        for seg, profile in segment_profiles.items():
+            radar_data.append({
+                'Segment': f"Segment {seg}",
+                'Claim Frequency': profile['Claim Frequency'],
+                'Premium': profile['Premium'],
+                'Age': profile['Age'],
+                'Incident Severity': profile['Incident Severity']
+            })
+        radar_df = pd.DataFrame(radar_data)
+        fig_radar = px.line_polar(
+            radar_df.melt(id_vars='Segment', var_name='Metric', value_name='Value'),
+            r='Value',
+            theta='Metric',
+            color='Segment',
+            line_close=True,
+            title="Risk Profile Comparison Across Segments",
+            color_discrete_sequence=['#00CC96', '#EF553B', '#AB63FA', '#FFA15A']
+        )
+        fig_radar.update_layout(height=400)
+        st.plotly_chart(fig_radar, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Radar chart failed: {str(e)}")
+    logger.info(f"Segment trend and new visualizations rendered for {segment}")
 
 with col11:
     st.header("Top Features for Segment")
@@ -490,9 +620,8 @@ with col12:
     customer_segments = st.multiselect("Filter by Customer Segment", df['customer_segment'].unique(), default=df['customer_segment'].unique())
     try:
         m = load_map(df, risk_levels, regions, customer_segments)
-        map_data = st_folium(m, height=500, width=1000, key="eswatini_map")
-        selected_region = map_data.get('last_object_clicked_tooltip', '').split(':')[0].strip() if map_data.get('last_object_clicked_tooltip') else None
-
+        map_data = folium_static(m, height=500, width=1000)
+        selected_region = None  # Simplified since tooltip interaction may not work with fixed bounds
         if selected_region:
             st.subheader(f"Risk Analysis for {selected_region}")
             region_data = df[df['location'] == selected_region]
