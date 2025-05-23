@@ -177,7 +177,7 @@ with cols[4]:
     fig_pie.update_layout(height=200, margin=dict(t=40, b=0, l=0, r=0))
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# Classification Report (Removed the ROC Curve Before This Section)
+# Classification Report
 st.subheader("Classification Report")
 st.json(report)
 
@@ -469,7 +469,7 @@ with col9:
     fig_claim.update_layout(template="plotly_dark")
     st.plotly_chart(fig_claim)
 
-# Section 4: Segmentation Drill-down with New Visualizations
+# Section 4: Segmentation Drill-down with Optimized Visualizations
 col10, col11 = st.columns([1, 1])
 with col10:
     st.header("Customer Segment Drill-down")
@@ -488,56 +488,65 @@ with col10:
         fig_segment_trend.update_layout(height=300)
         st.plotly_chart(fig_segment_trend, use_container_width=True)
     
-    # Stacked Bar Chart of Risk Factors by Segment (Fixed)
+    # Stacked Bar Chart of Risk Factors by Segment (Optimized)
     st.subheader("Risk Factor Contribution by Segment")
     try:
         segment_shap_values = {}
+        # Limit to a sample to prevent infinite computation
+        sample_size = min(100, len(segment_data))  # Cap at 100 samples
         for seg in df['customer_segment'].unique():
-            seg_data = df[df['customer_segment'] == seg]
-            # Drop columns only if they exist
+            seg_data_seg = df[df['customer_segment'] == seg].sample(n=sample_size, random_state=42)
             columns_to_drop = ['claim_amount_SZL', 'claim_risk']
-            columns_to_drop = [col for col in columns_to_drop if col in seg_data.columns]
-            seg_encoded = pd.get_dummies(seg_data.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
+            columns_to_drop = [col for col in columns_to_drop if col in seg_data_seg.columns]
+            seg_encoded = pd.get_dummies(seg_data_seg.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
             for col in selected_features:
                 if col not in seg_encoded.columns:
                     seg_encoded[col] = 0
             seg_encoded = seg_encoded[selected_features]
-            seg_shap = explainer.shap_values(seg_encoded.values)
-            if isinstance(seg_shap, list):
-                seg_shap = seg_shap[1]
-            segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0)
+            if len(seg_encoded) > 0:
+                seg_shap = explainer.shap_values(seg_encoded.head(50).values)  # Limit SHAP to 50 rows
+                if isinstance(seg_shap, list):
+                    seg_shap = seg_shap[1]
+                segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0) if seg_shap.size > 0 else np.zeros(len(selected_features))
+            else:
+                segment_shap_values[seg] = np.zeros(len(selected_features))
         
         shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
-        top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
-        fig_stacked = px.bar(
-            shap_by_segment.reset_index(),
-            x='customer_segment',
-            y=[top_features[0], top_features[1]],
-            title="Top Risk Factors by Segment",
-            labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
-            barmode='stack',
-            color_discrete_sequence=['#00CC96', '#EF553B']
-        )
-        fig_stacked.update_layout(height=300)
-        st.plotly_chart(fig_stacked, use_container_width=True)
+        if not shap_by_segment.empty:
+            top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
+            fig_stacked = px.bar(
+                shap_by_segment.reset_index(),
+                x='customer_segment',
+                y=[top_features[0], top_features[1]],
+                title="Top Risk Factors by Segment",
+                labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
+                barmode='stack',
+                color_discrete_sequence=['#00CC96', '#EF553B']
+            )
+            fig_stacked.update_layout(height=300)
+            st.plotly_chart(fig_stacked, use_container_width=True)
+        else:
+            st.warning("No data available for stacked bar chart.")
     except Exception as e:
         st.warning(f"Stacked bar chart failed: {str(e)}")
 
-    # Radar Chart for Risk Profile Comparison (Fixed)
+    # Radar Chart for Risk Profile Comparison (Optimized)
     st.subheader("Risk Profile Comparison Across Segments")
     try:
         segment_profiles = {}
-        for seg in df['customer_segment'].unique():
-            seg_data = df[df['customer_segment'] == seg]
+        sample_size = min(100, len(df))  # Cap at 100 samples
+        sampled_df = df.sample(n=sample_size, random_state=42)
+        for seg in sampled_df['customer_segment'].unique():
+            seg_data = sampled_df[sampled_df['customer_segment'] == seg]
             profile = {
-                'Risk Level': seg_data['claim_risk'].mean(),  # Renamed from Claim Frequency
+                'Risk Level': seg_data['claim_risk'].mean(),
                 'Premium': seg_data['policy_annual_premium'].mean() if 'policy_annual_premium' in seg_data.columns else 0,
                 'Age': seg_data['insured_age'].mean() if 'insured_age' in seg_data.columns else 0,
                 'Incident Severity': seg_data['incident_severity'].mean() if 'incident_severity' in seg_data.columns else 0
             }
             for key in profile:
                 if key == 'Risk Level':
-                    profile[key] = profile[key]  # Already in [0,1] range
+                    profile[key] = profile[key]
                 elif key in df.columns:
                     profile[key] = (profile[key] - df[key].min()) / (df[key].max() - df[key].min()) if df[key].max() != df[key].min() else 0
                 else:
@@ -554,17 +563,20 @@ with col10:
                 'Incident Severity': profile['Incident Severity']
             })
         radar_df = pd.DataFrame(radar_data)
-        fig_radar = px.line_polar(
-            radar_df.melt(id_vars='Segment', var_name='Metric', value_name='Value'),
-            r='Value',
-            theta='Metric',
-            color='Segment',
-            line_close=True,
-            title="Risk Profile Comparison Across Segments",
-            color_discrete_sequence=['#00CC96', '#EF553B', '#AB63FA', '#FFA15A']
-        )
-        fig_radar.update_layout(height=400)
-        st.plotly_chart(fig_radar, use_container_width=True)
+        if not radar_df.empty:
+            fig_radar = px.line_polar(
+                radar_df.melt(id_vars='Segment', var_name='Metric', value_name='Value'),
+                r='Value',
+                theta='Metric',
+                color='Segment',
+                line_close=True,
+                title="Risk Profile Comparison Across Segments",
+                color_discrete_sequence=['#00CC96', '#EF553B', '#AB63FA', '#FFA15A']
+            )
+            fig_radar.update_layout(height=400)
+            st.plotly_chart(fig_radar, use_container_width=True)
+        else:
+            st.warning("No data available for radar chart.")
     except Exception as e:
         st.warning(f"Radar chart failed: {str(e)}")
     logger.info(f"Segment trend and new visualizations rendered for {segment}")
@@ -572,7 +584,6 @@ with col10:
 with col11:
     st.header("Top Features for Segment")
     try:
-        # Drop columns only if they exist
         columns_to_drop = ['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude']
         columns_to_drop = [col for col in columns_to_drop if col in segment_data.columns]
         segment_data = segment_data.drop(columns=columns_to_drop)
@@ -581,12 +592,12 @@ with col11:
             if col not in segment_encoded.columns:
                 segment_encoded[col] = 0
         segment_encoded = segment_encoded[selected_features].values
-        shap_values_segment = explainer.shap_values(segment_encoded)
+        shap_values_segment = explainer.shap_values(segment_encoded[:50])  # Limit to 50 rows
         if isinstance(shap_values_segment, list):
             shap_values_segment = shap_values_segment[1]
         shap_values_segment = np.array(shap_values_segment).reshape(-1, len(selected_features))
         fig_shap_segment = plt.figure(figsize=(10, 6))
-        shap.summary_plot(shap_values_segment, segment_encoded, feature_names=selected_features, max_display=5, show=False, plot_type="bar")
+        shap.summary_plot(shap_values_segment, segment_encoded[:50], feature_names=selected_features, max_display=5, show=False, plot_type="bar")
         if plt.gcf().axes:
             plt.title(f'Top Features for {segment}')
             plt.tight_layout()
