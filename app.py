@@ -18,7 +18,7 @@ import folium
 from folium.plugins import HeatMap
 import geopandas
 from shapely.geometry import Point
-from streamlit_folium import folium_static  # Changed to folium_static for better rendering
+from streamlit_folium import folium_static
 from sklearn.metrics import confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
@@ -154,7 +154,7 @@ else:
 
 # Metrics Display with Pie Chart
 st.subheader("Key Metrics")
-cols = st.columns(5)  # Adjusted to accommodate pie chart
+cols = st.columns(5)
 metrics = [
     {"label": "Total Records", "value": len(df)},
     {"label": "Model AUC", "value": f"{roc_auc:.2f}"},
@@ -164,7 +164,7 @@ metrics = [
 for col, metric in zip(cols[:4], metrics):
     col.metric(label=metric["label"], value=metric["value"])
 
-# New Visualization: Pie Chart of Risk Category Distribution
+# Pie Chart of Risk Category Distribution
 with cols[4]:
     st.subheader("Risk Category Distribution")
     risk_counts = pd.Series(y_balanced).value_counts()
@@ -177,32 +177,19 @@ with cols[4]:
     fig_pie.update_layout(height=200, margin=dict(t=40, b=0, l=0, r=0))
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# Plot ROC Curve
-fig, ax = plt.subplots()
-ax.plot(fpr, tpr, label=f'AUC = {roc_auc:.2f}')
-ax.plot([0, 1], [0, 1], 'k--')
-ax.set_xlabel('False Positive Rate')
-ax.set_ylabel('True Positive Rate')
-ax.set_title('ROC Curve')
-ax.legend()
-st.pyplot(fig)
-
-# Classification Report
+# Classification Report (Removed the ROC Curve Before This Section)
 st.subheader("Classification Report")
 st.json(report)
 
 st.success("Model trained and results displayed successfully!")
 
-# Map Functions with Segmentations (Updated to Fix Zoom Issue)
+# Map Functions with Segmentations
 def init_map():
-    # Set Eswatini center coordinates and fixed zoom
-    eswatini_center = [-26.5225, 31.4659]  # Approximate center of Eswatini
+    eswatini_center = [-26.5225, 31.4659]
     m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
-    
-    # Define Eswatini bounding box
     eswatini_bounds = [
-        [-27.3, 30.7],  # Southwest corner (latitude, longitude)
-        [-25.7, 32.2]   # Northeast corner
+        [-27.3, 30.7],
+        [-25.7, 32.2]
     ]
     m.fit_bounds(eswatini_bounds)
     return m
@@ -217,7 +204,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
     
-    # Add Choropleth layer if GeoJSON is available
     try:
         geojson_path = 'eswatini_regions.geojson'
         folium.Choropleth(
@@ -235,13 +221,11 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
         logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
         st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
 
-    # Aggregate risk by region and segment
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
     risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
     risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
     
-    # Ensure sufficient unique values for qcut
     if risk_by_region_segment['claim_risk'].nunique() > 1:
         quantiles = risk_by_region_segment['claim_risk'].quantile([0, 0.33, 0.66, 1]).values
         risk_by_region_segment['risk_level'] = pd.cut(risk_by_region_segment['claim_risk'], bins=quantiles, labels=['Low', 'Medium', 'High'], include_lowest=True)
@@ -249,7 +233,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
         risk_by_region_segment['risk_level'] = 'Low'
         logger.info("Not enough variance in claim_risk for binning. Defaulting to 'Low' risk level.")
 
-    # Apply filters
     if selected_risk_levels:
         risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['risk_level'].isin(selected_risk_levels)]
     if selected_regions:
@@ -257,7 +240,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     if selected_segments:
         risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['customer_segment'].isin(selected_segments)]
 
-    # Plot markers with segment-specific styling
     segment_styles = {
         '0': {'radius': 10, 'color': '#1f77b4'},
         '1': {'radius': 12, 'color': '#ff7f0e'},
@@ -276,7 +258,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
             tooltip=f"{row['location']} (Segment {row['customer_segment']}): {row['risk_level']} Risk ({row['claim_risk']*100:.1f}%)"
         ).add_to(folium_map)
 
-    # Add heatmap for high-risk claims
     df['Latitude'] = df['location'].map(lambda x: region_coords.get(x, (-26.5, 31.5))[0])
     df['Longitude'] = df['location'].map(lambda x: region_coords.get(x, (-26.5, 31.5))[1])
     heat_data = [[row['Latitude'], row['Longitude']] for _, row in df.iterrows() if row['claim_risk'] == 1]
@@ -363,7 +344,6 @@ if st.button("Predict"):
                 else:
                     logger.info(f"No significant drift detected (p-value: {p_value:.4f})")
                 
-                # New Visualization: Line Chart of Risk Drift Over Time
                 st.subheader("Risk Drift Over Time")
                 fig_drift = px.line(
                     pred_log_df,
@@ -411,7 +391,6 @@ with st.expander("Model Performance", expanded=True):
         except Exception as e:
             st.error(f"ROC plotting failed: {str(e)}")
 
-    # Risk Trend Over Time with Heatmap
     col6, _ = st.columns([1, 1])
     with col6:
         st.header("Risk Trend Over Time")
@@ -424,7 +403,6 @@ with st.expander("Model Performance", expanded=True):
                 fig_trend.update_layout(height=300)
                 st.plotly_chart(fig_trend, use_container_width=True)
                 
-                # New Visualization: Heatmap of Risk Distribution Over Time
                 st.subheader("Risk Distribution Over Time (Heatmap)")
                 monthly_risk = pred_log.groupby(pred_log['timestamp'].dt.strftime('%Y-%m'))['probability_high_risk'].mean().reset_index()
                 monthly_risk['risk_score'] = monthly_risk['probability_high_risk']
@@ -510,14 +488,16 @@ with col10:
         fig_segment_trend.update_layout(height=300)
         st.plotly_chart(fig_segment_trend, use_container_width=True)
     
-    # New Visualization: Stacked Bar Chart of Risk Factors by Segment
+    # Stacked Bar Chart of Risk Factors by Segment (Fixed)
     st.subheader("Risk Factor Contribution by Segment")
     try:
-        # Compute average SHAP values for each segment
         segment_shap_values = {}
         for seg in df['customer_segment'].unique():
             seg_data = df[df['customer_segment'] == seg]
-            seg_encoded = pd.get_dummies(seg_data.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude']), columns=categorical_cols, drop_first=False)
+            # Drop columns only if they exist
+            columns_to_drop = ['claim_amount_SZL', 'claim_risk']
+            columns_to_drop = [col for col in columns_to_drop if col in seg_data.columns]
+            seg_encoded = pd.get_dummies(seg_data.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
             for col in selected_features:
                 if col not in seg_encoded.columns:
                     seg_encoded[col] = 0
@@ -527,7 +507,6 @@ with col10:
                 seg_shap = seg_shap[1]
             segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0)
         
-        # Prepare data for stacked bar chart
         shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
         top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
         fig_stacked = px.bar(
@@ -544,29 +523,32 @@ with col10:
     except Exception as e:
         st.warning(f"Stacked bar chart failed: {str(e)}")
 
-    # New Visualization: Radar Chart for Risk Profile Comparison
+    # Radar Chart for Risk Profile Comparison (Fixed)
     st.subheader("Risk Profile Comparison Across Segments")
     try:
         segment_profiles = {}
         for seg in df['customer_segment'].unique():
             seg_data = df[df['customer_segment'] == seg]
             profile = {
-                'Claim Frequency': seg_data['claim_risk'].mean(),
+                'Risk Level': seg_data['claim_risk'].mean(),  # Renamed from Claim Frequency
                 'Premium': seg_data['policy_annual_premium'].mean() if 'policy_annual_premium' in seg_data.columns else 0,
                 'Age': seg_data['insured_age'].mean() if 'insured_age' in seg_data.columns else 0,
                 'Incident Severity': seg_data['incident_severity'].mean() if 'incident_severity' in seg_data.columns else 0
             }
-            # Normalize values to [0,1]
             for key in profile:
-                profile[key] = (profile[key] - df[key].min()) / (df[key].max() - df[key].min()) if df[key].max() != df[key].min() else 0
+                if key == 'Risk Level':
+                    profile[key] = profile[key]  # Already in [0,1] range
+                elif key in df.columns:
+                    profile[key] = (profile[key] - df[key].min()) / (df[key].max() - df[key].min()) if df[key].max() != df[key].min() else 0
+                else:
+                    profile[key] = 0
             segment_profiles[seg] = profile
         
-        # Prepare data for radar chart
         radar_data = []
         for seg, profile in segment_profiles.items():
             radar_data.append({
                 'Segment': f"Segment {seg}",
-                'Claim Frequency': profile['Claim Frequency'],
+                'Risk Level': profile['Risk Level'],
                 'Premium': profile['Premium'],
                 'Age': profile['Age'],
                 'Incident Severity': profile['Incident Severity']
@@ -590,7 +572,10 @@ with col10:
 with col11:
     st.header("Top Features for Segment")
     try:
-        segment_data = segment_data.drop(columns=['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude'])
+        # Drop columns only if they exist
+        columns_to_drop = ['claim_amount_SZL', 'claim_risk', 'Latitude', 'Longitude']
+        columns_to_drop = [col for col in columns_to_drop if col in segment_data.columns]
+        segment_data = segment_data.drop(columns=columns_to_drop)
         segment_encoded = pd.get_dummies(segment_data, columns=categorical_cols, drop_first=False)
         for col in selected_features:
             if col not in segment_encoded.columns:
@@ -621,7 +606,7 @@ with col12:
     try:
         m = load_map(df, risk_levels, regions, customer_segments)
         map_data = folium_static(m, height=500, width=1000)
-        selected_region = None  # Simplified since tooltip interaction may not work with fixed bounds
+        selected_region = None
         if selected_region:
             st.subheader(f"Risk Analysis for {selected_region}")
             region_data = df[df['location'] == selected_region]
