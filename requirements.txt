@@ -1,25 +1,27 @@
-# Core
+# --- Core ---
 streamlit>=1.45.1
 
-# ML
-scikit-learn==1.4.2
-imbalanced-learn==0.11.0
+# --- Data Processing ---
 pandas>=1.5
 numpy>=1.22
 joblib
 
-# Visuals
+# --- Machine Learning ---
+scikit-learn==1.4.2
+imbalanced-learn==0.11.0
+
+# --- Explainability ---
 shap>=0.42.1
+
+# --- Visualization ---
 plotly
 matplotlib
 seaborn
 
-# Geo
+# --- Mapping ---
 folium
 geopandas
 streamlit-folium
 
-# Reports
-reportlab
-ing
+# --- PDF Report ---
 reportlab
