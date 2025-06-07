@@ -118,10 +118,18 @@ X = df_encoded.drop(columns=['claim_amount_SZL', 'claim_risk'])
 y = df_encoded['claim_risk']
 
 # Apply ADASYN oversampling
+# Ensure no NaNs or infinite values exist
+X = X.replace([np.inf, -np.inf], np.nan)
+X = X.dropna()
+y = y.loc[X.index]  # Align y with cleaned X
+
+# Apply ADASYN oversampling
 adasyn = ADASYN(random_state=42)
 X_balanced, y_balanced = adasyn.fit_resample(X, y)
-logger.info(f"X_balanced shape: {X_balanced.shape}, y_balanced shape: {y_balanced.shape}")
-st.write(f"Class Distribution After ADASYN: {pd.Series(y_balanced).value_counts().to_dict()}")
+
+logger.info(f"Shape before balancing: X={X.shape}, y={y.shape}")
+logger.info(f"Nulls in X: {X.isnull().sum().sum()}, Nulls in y: {y.isnull().sum()}")
+
 
 # Split the balanced data
 X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.2, stratify=y_balanced, random_state=42)
