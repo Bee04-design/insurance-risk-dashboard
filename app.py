@@ -193,6 +193,15 @@ st.json(report)
 st.success("Model trained and results displayed successfully!")
 
 # Map Functions with Segmentations
+import streamlit as st
+import pandas as pd
+import folium
+import json
+from streamlit_folium import st_folium
+
+# -------------------------------
+# Initialize map
+# -------------------------------
 def init_map():
     eswatini_center = [-26.5225, 31.4659]
     m = folium.Map(location=eswatini_center, zoom_start=7, tiles="cartodbpositron")
@@ -200,6 +209,9 @@ def init_map():
     m.fit_bounds(eswatini_bounds)
     return m
 
+# -------------------------------
+# Plot function
+# -------------------------------
 def plot_from_df(df, folium_map):
     region_coords = {
         'Lubombo': (-26.3, 31.8),
@@ -208,12 +220,10 @@ def plot_from_df(df, folium_map):
         'Shiselweni': (-27.0, 31.3)
     }
 
-    # Clean input
     df = df[df['location'].isin(region_coords)]
     df['Latitude'] = df['location'].map(lambda x: region_coords[x][0])
     df['Longitude'] = df['location'].map(lambda x: region_coords[x][1])
 
-    # Load GeoJSON as raw dict
     try:
         with open("eswatini_regions.geojson", "r") as f:
             geojson_data = json.load(f)
@@ -221,7 +231,6 @@ def plot_from_df(df, folium_map):
     except Exception as e:
         st.warning(f"GeoJSON load failed: {e}")
 
-    # Add Circle Markers
     for _, row in df.iterrows():
         folium.CircleMarker(
             location=(row['Latitude'], row['Longitude']),
@@ -232,6 +241,38 @@ def plot_from_df(df, folium_map):
             fill_color='red' if row['claim_risk'] > 0.5 else 'green',
             popup=f"{row['location']}: Risk = {row['claim_risk']:.2f}"
         ).add_to(folium_map)
+
+# -------------------------------
+# Main App
+# -------------------------------
+def main():
+    st.set_page_config(layout="wide")
+    st.title("Insurance Risk Map - Eswatini")
+
+    # Load your data (replace with your actual source)
+    df = pd.read_csv("your_data.csv")  # <- replace with your dataset path
+    required_cols = {'location', 'claim_risk', 'segment'}
+    if not required_cols.issubset(df.columns):
+        st.error(f"Missing columns in your data. Required: {required_cols}")
+        return
+
+    # Filters
+    st.sidebar.header("Filters")
+    selected_regions = st.sidebar.multiselect("Select Regions", options=df['location'].unique(), default=df['location'].unique())
+    selected_risk = st.sidebar.slider("Select Claim Risk Range", min_value=0.0, max_value=1.0, value=(0.0, 1.0))
+    selected_segments = st.sidebar.multiselect("Select Segments", options=df['segment'].unique(), default=df['segment'].unique())
+
+    # Apply filters
+    filtered_df = df[
+        (df['location'].isin(selected_regions)) &
+        (df['claim_risk'].between(*selected_risk)) &
+        (df['segment'].isin(selected_segments))
+    ]
+
+    # Create and display map
+    m = init_map()
+    plot_from_df(filtered_df, m)
+    st_folium(m, width=1000, height=600)
 
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
