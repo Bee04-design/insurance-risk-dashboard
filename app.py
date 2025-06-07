@@ -272,7 +272,6 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     folium.plugins.MiniMap().add_to(folium_map)
     return folium_map
 
-@st.cache_data
 def load_map(df, selected_risk_levels, selected_regions, selected_segments):
     m = init_map()
     m = plot_from_df(df, m, selected_risk_levels, selected_regions, selected_segments)
