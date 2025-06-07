@@ -212,19 +212,19 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
     
-    try:
-        geojson_path = 'eswatini_regions.geojson'
-        folium.Choropleth(
-            geo_data=geojson_path,
-            name='choropleth',
-            data=risk_by_region,
-            columns=['location', 'claim_risk'],
-            key_on='feature.properties.name',
-            fill_color='YlOrRd',
-            fill_opacity=0.7,
-            line_opacity=0.2,
-            legend_name='Average Claim Risk'
-        ).add_to(folium_map)
+   try:
+    geojson_data = geopandas.read_file("eswatini_regions.geojson")
+    folium.Choropleth(
+        geo_data=geojson_data,
+        name='choropleth',
+        data=risk_by_region,
+        columns=['location', 'claim_risk'],
+        key_on='feature.properties.region',  # Updated to match GeoJSON property
+        fill_color='YlOrRd',
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        legend_name='Average Claim Risk'
+    ).add_to(folium_map)
     except FileNotFoundError:
         logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
         st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
