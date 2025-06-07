@@ -270,7 +270,7 @@ except FileNotFoundError:
     heat_data = [[row['Latitude'], row['Longitude']] for _, row in df.iterrows() if row['claim_risk'] == 1]
     HeatMap(heat_data, radius=15).add_to(folium_map)
     folium.plugins.MiniMap().add_to(folium_map)
-    return folium_map
+return folium_map
 
 @st.cache_data
 def load_map(df, selected_risk_levels, selected_regions, selected_segments):
