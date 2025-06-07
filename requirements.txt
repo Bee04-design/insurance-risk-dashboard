@@ -9,7 +9,7 @@ shap
 plotly
 matplotlib
 seaborn
-folium
+folium==0.17.0
 streamlit-folium>=0.20.0 
 reportlab
 geopandas>=0.14.4
