@@ -195,49 +195,44 @@ st.success("Model trained and results displayed successfully!")
 # Map Functions with Segmentations
 def init_map():
     eswatini_center = [-26.5225, 31.4659]
-    m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
+    m = folium.Map(location=eswatini_center, zoom_start=7, tiles="cartodbpositron")
     eswatini_bounds = [[-27.3, 30.7], [-25.7, 32.2]]
     m.fit_bounds(eswatini_bounds)
     return m
 
-def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selected_segments):
+def plot_from_df(df, folium_map):
     region_coords = {
-        'Lubombo': (-26.3, 31.8), 'Hhohho': (-26.0, 31.1),
-        'Manzini': (-26.5, 31.4), 'Shiselweni': (-27.0, 31.3)
+        'Lubombo': (-26.3, 31.8),
+        'Hhohho': (-26.0, 31.1),
+        'Manzini': (-26.5, 31.4),
+        'Shiselweni': (-27.0, 31.3)
     }
 
-    risk_by_region = df.groupby('location')['claim_risk'].mean().reset_index()
-    risk_by_region = risk_by_region[risk_by_region['location'].isin(region_coords.keys())]
-    risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
-    risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
+    # Clean input
+    df = df[df['location'].isin(region_coords)]
+    df['Latitude'] = df['location'].map(lambda x: region_coords[x][0])
+    df['Longitude'] = df['location'].map(lambda x: region_coords[x][1])
 
+    # Load GeoJSON as raw dict
     try:
-        with open("eswatini_regions.geojson", "r", encoding="utf-8") as f:
+        with open("eswatini_regions.geojson", "r") as f:
             geojson_data = json.load(f)
+        folium.GeoJson(geojson_data, name="Regions").add_to(folium_map)
+    except Exception as e:
+        st.warning(f"GeoJSON load failed: {e}")
 
-        geojson_regions = {feature["properties"]["region"] for feature in geojson_data["features"]}
-        missing_regions = set(risk_by_region['location']) - geojson_regions
-        if missing_regions:
-            st.warning(f"Regions missing in GeoJSON: {missing_regions}")
-
-        folium.Choropleth(
-            geo_data=geojson_data,
-            name='choropleth',
-            data=risk_by_region,
-            columns=['location', 'claim_risk'],
-            key_on='feature.properties.region',
-            fill_color='YlOrRd',
+    # Add Circle Markers
+    for _, row in df.iterrows():
+        folium.CircleMarker(
+            location=(row['Latitude'], row['Longitude']),
+            radius=10,
+            color='black',
+            fill=True,
             fill_opacity=0.7,
-            line_opacity=0.2,
-            legend_name='Average Claim Risk'
+            fill_color='red' if row['claim_risk'] > 0.5 else 'green',
+            popup=f"{row['location']}: Risk = {row['claim_risk']:.2f}"
         ).add_to(folium_map)
 
-    except FileNotFoundError:
-        logger.warning("GeoJSON file not found. Skipping choropleth.")
-        st.warning("GeoJSON file not found.")
-    except Exception as e:
-        logger.error(f"Error rendering map: {e}")
-        st.error(f"Error rendering map: {e}")
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
     risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
