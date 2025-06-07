@@ -495,7 +495,7 @@ with col10:
         st.plotly_chart(fig_segment_trend, use_container_width=True)
     
     # Stacked Bar Chart of Risk Factors by Segment (Optimized)
-    st.subheader("Risk Factor Contribution by Segment")
+   st.subheader("Risk Factor Contribution by Segment")
 try:
     segment_shap_values = {}
     sample_size = min(100, len(df))
@@ -536,7 +536,6 @@ try:
         st.warning("No data available for stacked bar chart.")
 except Exception as e:
     st.warning(f"Stacked bar chart failed: {str(e)}")
-
     # Radar Chart for Risk Profile Comparison (Optimized)
     st.subheader("Risk Profile Comparison Across Segments")
     try:
