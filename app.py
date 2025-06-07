@@ -495,7 +495,7 @@ with col10:
         st.plotly_chart(fig_segment_trend, use_container_width=True)
     
     # Stacked Bar Chart of Risk Factors by Segment (Optimized)
-   st.subheader("Risk Factor Contribution by Segment")
+st.subheader("Risk Factor Contribution by Segment")
 try:
     segment_shap_values = {}
     sample_size = min(100, len(df))
