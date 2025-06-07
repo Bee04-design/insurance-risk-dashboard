@@ -12,7 +12,9 @@ import numpy as np
 import joblib
 from sklearn.metrics import classification_report, roc_curve, auc
 from sklearn.feature_selection import SelectFromModel
-import shap
+import shapimport folium
+import json
+import logging
 import plotly.express as px
 import folium
 from folium.plugins import HeatMap
@@ -25,7 +27,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 from sklearn.impute import SimpleImputer
-import logging
 from imblearn.over_sampling import ADASYN
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.pipeline import Pipeline
@@ -195,16 +196,6 @@ st.success("Model trained and results displayed successfully!")
 def init_map():
     eswatini_center = [-26.5225, 31.4659]
     m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
-    eswatini_bounds = [
-        [-27.3, 30.7],
-        [-25.7, 32.2]
-    ]
-    m.fit_bounds(eswatini_bounds)
-    return m
-
-def init_map():
-    eswatini_center = [-26.5225, 31.4659]
-    m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
     eswatini_bounds = [[-27.3, 30.7], [-25.7, 32.2]]
     m.fit_bounds(eswatini_bounds)
     return m
@@ -221,10 +212,11 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
 
     try:
-        geojson_data = geopandas.read_file("eswatini_regions.geojson")
+        with open("eswatini_regions.geojson", "r", encoding="utf-8") as f:
+            geojson_data = json.load(f)
 
-        # Confirm key match between GeoJSON and dataframe
-        missing_regions = set(risk_by_region['location']) - set(geojson_data['region'].unique())
+        geojson_regions = {feature["properties"]["region"] for feature in geojson_data["features"]}
+        missing_regions = set(risk_by_region['location']) - geojson_regions
         if missing_regions:
             st.warning(f"Regions missing in GeoJSON: {missing_regions}")
 
@@ -237,15 +229,15 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
             fill_color='YlOrRd',
             fill_opacity=0.7,
             line_opacity=0.2,
-            legend_name='Average Claim Risk',
+            legend_name='Average Claim Risk'
         ).add_to(folium_map)
 
     except FileNotFoundError:
-        logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
-        st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
+        logger.warning("GeoJSON file not found. Skipping choropleth.")
+        st.warning("GeoJSON file not found.")
     except Exception as e:
-        logger.error(f"Map rendering failed: {e}")
-        st.error(f"Map rendering failed: {e}")
+        logger.error(f"Error rendering map: {e}")
+        st.error(f"Error rendering map: {e}")
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
     risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
