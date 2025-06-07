@@ -224,7 +224,8 @@ try:
         line_opacity=0.2,
         legend_name='Average Claim Risk'
     ).add_to(folium_map)
-    except FileNotFoundError:
+    
+except FileNotFoundError:
         logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
         st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
 
