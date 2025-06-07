@@ -1,16 +1,16 @@
 
 python==3.12.7
 streamlit>=1.45.1
-pandas>=1.5 
-numpy>=1.22
+pandas>=1.5
+numpy>=1.22 
 joblib>=1.5.1
-scikit-learn==1.4.2
+scikit-learn==1.4.2 
 imbalanced-learn==0.11.0
 shap>=0.42.1
-plotly>=6.1.2
+plotly>=6.1.2 
 matplotlib>=3.7 
-seaborn>=0.13
-folium>=0.19.7
+seaborn>=0.13 
+folium>=0.19.7 
 streamlit-folium>=0.20.0 
-reportlab>=4.0.9 
+reportlab>=4.0.9
 geopandas>=0.14.4
