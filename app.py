@@ -202,18 +202,32 @@ def init_map():
     m.fit_bounds(eswatini_bounds)
     return m
 
+def init_map():
+    eswatini_center = [-26.5225, 31.4659]
+    m = folium.Map(location=eswatini_center, zoom_start=7, min_zoom=6, max_zoom=8, tiles="cartodbpositron")
+    eswatini_bounds = [[-27.3, 30.7], [-25.7, 32.2]]
+    m.fit_bounds(eswatini_bounds)
+    return m
+
 def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selected_segments):
     region_coords = {
         'Lubombo': (-26.3, 31.8), 'Hhohho': (-26.0, 31.1),
         'Manzini': (-26.5, 31.4), 'Shiselweni': (-27.0, 31.3)
     }
+
     risk_by_region = df.groupby('location')['claim_risk'].mean().reset_index()
     risk_by_region = risk_by_region[risk_by_region['location'].isin(region_coords.keys())]
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
-    
+
     try:
         geojson_data = geopandas.read_file("eswatini_regions.geojson")
+
+        # Confirm key match between GeoJSON and dataframe
+        missing_regions = set(risk_by_region['location']) - set(geojson_data['region'].unique())
+        if missing_regions:
+            st.warning(f"Regions missing in GeoJSON: {missing_regions}")
+
         folium.Choropleth(
             geo_data=geojson_data,
             name='choropleth',
@@ -223,11 +237,15 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
             fill_color='YlOrRd',
             fill_opacity=0.7,
             line_opacity=0.2,
-            legend_name='Average Claim Risk'
+            legend_name='Average Claim Risk',
         ).add_to(folium_map)
+
     except FileNotFoundError:
         logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
         st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
+    except Exception as e:
+        logger.error(f"Map rendering failed: {e}")
+        st.error(f"Map rendering failed: {e}")
     risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
     risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
     risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
