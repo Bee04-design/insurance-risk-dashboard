@@ -511,7 +511,7 @@ try:
         if len(seg_encoded) > 0:
             seg_shap = explainer.shap_values(seg_encoded.head(50).values)
             if isinstance(seg_shap, list):
-                seg_shap = seg_shap[1]  # Use class 1 SHAP values for binary classification
+                seg_shap = seg_shap[1]  # Class 1 SHAP values
             segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0)
         else:
             segment_shap_values[seg] = np.zeros(len(selected_features))
@@ -519,7 +519,6 @@ try:
     shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
     if not shap_by_segment.empty:
         top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
-        # Create DataFrame for plotting
         plot_data = shap_by_segment[top_features].reset_index().rename(columns={'index': 'customer_segment'})
         fig_stacked = px.bar(
             plot_data,
