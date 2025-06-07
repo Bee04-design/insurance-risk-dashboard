@@ -12,7 +12,7 @@ import numpy as np
 import joblib
 from sklearn.metrics import classification_report, roc_curve, auc
 from sklearn.feature_selection import SelectFromModel
-import shapimport folium
+import shap
 import json
 import logging
 import plotly.express as px
