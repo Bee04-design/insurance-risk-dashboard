@@ -211,27 +211,27 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     risk_by_region = risk_by_region[risk_by_region['location'].isin(region_coords.keys())]
     risk_by_region['Latitude'] = risk_by_region['location'].map(lambda x: region_coords[x][0])
     risk_by_region['Longitude'] = risk_by_region['location'].map(lambda x: region_coords[x][1])
-try:
-    geojson_data = geopandas.read_file("eswatini_regions.geojson")
-    folium.Choropleth(
-        geo_data=geojson_data,
-        name='choropleth',
-        data=risk_by_region,
-        columns=['location', 'claim_risk'],
-        key_on='feature.properties.region',  # Updated to match GeoJSON property
-        fill_color='YlOrRd',
-        fill_opacity=0.7,
-        line_opacity=0.2,
-        legend_name='Average Claim Risk'
-    ).add_to(folium_map)
-except FileNotFoundError:
-    logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
-    st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
-
-    risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
-    risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
-    risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
-    risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
+    
+    try:
+        geojson_data = geopandas.read_file("eswatini_regions.geojson")
+        folium.Choropleth(
+            geo_data=geojson_data,
+            name='choropleth',
+            data=risk_by_region,
+            columns=['location', 'claim_risk'],
+            key_on='feature.properties.region',
+            fill_color='YlOrRd',
+            fill_opacity=0.7,
+            line_opacity=0.2,
+            legend_name='Average Claim Risk'
+        ).add_to(folium_map)
+    except FileNotFoundError:
+        logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
+        st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
+       risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
+       risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
+       risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
+       risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
     
     if risk_by_region_segment['claim_risk'].nunique() > 1:
         quantiles = risk_by_region_segment['claim_risk'].quantile([0, 0.33, 0.66, 1]).values
@@ -270,7 +270,7 @@ except FileNotFoundError:
     heat_data = [[row['Latitude'], row['Longitude']] for _, row in df.iterrows() if row['claim_risk'] == 1]
     HeatMap(heat_data, radius=15).add_to(folium_map)
     folium.plugins.MiniMap().add_to(folium_map)
-return folium_map
+    return folium_map
 
 @st.cache_data
 def load_map(df, selected_risk_levels, selected_regions, selected_segments):
