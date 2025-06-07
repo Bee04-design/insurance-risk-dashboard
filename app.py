@@ -228,10 +228,10 @@ def plot_from_df(df, folium_map, selected_risk_levels, selected_regions, selecte
     except FileNotFoundError:
         logger.warning("eswatini_regions.geojson not found. Skipping choropleth layer.")
         st.warning("GeoJSON file for Eswatini regions not found. Map will render without choropleth layer.")
-       risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
-       risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
-       risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
-       risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
+    risk_by_region_segment = df.groupby(['location', 'customer_segment'])['claim_risk'].mean().reset_index()
+    risk_by_region_segment = risk_by_region_segment[risk_by_region_segment['location'].isin(region_coords.keys())]
+    risk_by_region_segment['Latitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][0])
+    risk_by_region_segment['Longitude'] = risk_by_region_segment['location'].map(lambda x: region_coords[x][1])
     
     if risk_by_region_segment['claim_risk'].nunique() > 1:
         quantiles = risk_by_region_segment['claim_risk'].quantile([0, 0.33, 0.66, 1]).values
