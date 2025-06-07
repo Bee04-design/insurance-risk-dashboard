@@ -496,45 +496,46 @@ with col10:
     
     # Stacked Bar Chart of Risk Factors by Segment (Optimized)
     st.subheader("Risk Factor Contribution by Segment")
-    try:
-        segment_shap_values = {}
-        # Limit to a sample to prevent infinite computation
-        sample_size = min(100, len(segment_data))  # Cap at 100 samples
-        for seg in df['customer_segment'].unique():
-            seg_data_seg = df[df['customer_segment'] == seg].sample(n=sample_size, random_state=42)
-            columns_to_drop = ['claim_amount_SZL', 'claim_risk']
-            columns_to_drop = [col for col in columns_to_drop if col in seg_data_seg.columns]
-            seg_encoded = pd.get_dummies(seg_data_seg.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
-            for col in selected_features:
-                if col not in seg_encoded.columns:
-                    seg_encoded[col] = 0
-            seg_encoded = seg_encoded[selected_features]
-            if len(seg_encoded) > 0:
-                seg_shap = explainer.shap_values(seg_encoded.head(50).values)  # Limit SHAP to 50 rows
-                if isinstance(seg_shap, list):
-                    seg_shap = seg_shap[1]
-                segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0) if seg_shap.size > 0 else np.zeros(len(selected_features))
-            else:
-                segment_shap_values[seg] = np.zeros(len(selected_features))
-        
-        shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
-        if not shap_by_segment.empty:
-            top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
-            fig_stacked = px.bar(
-                shap_by_segment.reset_index(),
-                x='customer_segment',
-                y=[top_features[0], top_features[1]],
-                title="Top Risk Factors by Segment",
-                labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
-                barmode='stack',
-                color_discrete_sequence=['#00CC96', '#EF553B']
-            )
-            fig_stacked.update_layout(height=300)
-            st.plotly_chart(fig_stacked, use_container_width=True)
+try:
+    segment_shap_values = {}
+    sample_size = min(100, len(df))
+    for seg in df['customer_segment'].unique():
+        seg_data_seg = df[df['customer_segment'] == seg].sample(n=sample_size, random_state=42)
+        columns_to_drop = ['claim_amount_SZL', 'claim_risk']
+        columns_to_drop = [col for col in columns_to_drop if col in seg_data_seg.columns]
+        seg_encoded = pd.get_dummies(seg_data_seg.drop(columns=columns_to_drop), columns=categorical_cols, drop_first=False)
+        for col in selected_features:
+            if col not in seg_encoded.columns:
+                seg_encoded[col] = 0
+        seg_encoded = seg_encoded[selected_features]
+        if len(seg_encoded) > 0:
+            seg_shap = explainer.shap_values(seg_encoded.head(50).values)
+            if isinstance(seg_shap, list):
+                seg_shap = seg_shap[1]  # Use class 1 SHAP values for binary classification
+            segment_shap_values[seg] = np.abs(seg_shap).mean(axis=0)
         else:
-            st.warning("No data available for stacked bar chart.")
-    except Exception as e:
-        st.warning(f"Stacked bar chart failed: {str(e)}")
+            segment_shap_values[seg] = np.zeros(len(selected_features))
+    
+    shap_by_segment = pd.DataFrame(segment_shap_values, index=selected_features).T
+    if not shap_by_segment.empty:
+        top_features = shap_by_segment.mean().sort_values(ascending=False).head(2).index
+        # Create DataFrame for plotting
+        plot_data = shap_by_segment[top_features].reset_index().rename(columns={'index': 'customer_segment'})
+        fig_stacked = px.bar(
+            plot_data,
+            x='customer_segment',
+            y=[top_features[0], top_features[1]],
+            title="Top Risk Factors by Segment",
+            labels={'value': 'SHAP Contribution', 'customer_segment': 'Segment'},
+            barmode='stack',
+            color_discrete_sequence=['#00CC96', '#EF553B']
+        )
+        fig_stacked.update_layout(height=300)
+        st.plotly_chart(fig_stacked, use_container_width=True)
+    else:
+        st.warning("No data available for stacked bar chart.")
+except Exception as e:
+    st.warning(f"Stacked bar chart failed: {str(e)}")
 
     # Radar Chart for Risk Profile Comparison (Optimized)
     st.subheader("Risk Profile Comparison Across Segments")
