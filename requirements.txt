@@ -20,7 +20,6 @@ seaborn
 
 # --- Mapping ---
 folium
-geopandas
 streamlit-folium
 
 # --- PDF Report ---
